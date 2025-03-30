@@ -1,13 +1,13 @@
 import React from 'react';
 
-interface MediaListProps {
+interface TimelinePaneProps {
   mediaFiles: any[];
   selectedMedia: any | null;
   onSelectMedia: (media: any) => void;
 }
 
-// メディアリストコンポーネント
-const MediaList: React.FC<MediaListProps> = ({
+// タイムラインペインコンポーネント
+const TimelinePane: React.FC<TimelinePaneProps> = ({
   mediaFiles,
   selectedMedia,
   onSelectMedia
@@ -36,8 +36,8 @@ const MediaList: React.FC<MediaListProps> = ({
   return (
     <div className="panel">
       <div className="panel-header">
-        <h2>素材リスト</h2>
-        <span>{mediaFiles.length}アイテム</span>
+        <h2>タイムライン</h2>
+        <span className="item-count">{mediaFiles.length}アイテム</span>
       </div>
       <div className="panel-content">
         <div className="media-list">
@@ -77,4 +77,4 @@ const MediaList: React.FC<MediaListProps> = ({
   );
 };
 
-export default MediaList; 
+export default TimelinePane; 

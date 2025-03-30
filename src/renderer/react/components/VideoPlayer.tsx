@@ -30,7 +30,7 @@ const VideoPlayer: React.FC<VideoPlayerProps> = ({ media }) => {
     <div className="panel">
       <div className="panel-header">
         <h2>プレビュー</h2>
-        {media && <span>{media.name}</span>}
+        {media && <span className="media-title">{media.name}</span>}
       </div>
       <div className="panel-content">
         <div className="video-player">

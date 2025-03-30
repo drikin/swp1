@@ -5,10 +5,9 @@ import {
   PanelResizeHandle 
 } from 'react-resizable-panels';
 import Header from './Header';
-import MediaList from './MediaList';
+import TimelinePane from './TimelinePane';
 import VideoPlayer from './VideoPlayer';
-import Timeline from './Timeline';
-import TrimControls from './TrimControls';
+import TrimPane from './TrimPane';
 import ExportSettings from './ExportSettings';
 import StatusBar from './StatusBar';
 
@@ -148,9 +147,9 @@ const App: React.FC = () => {
           <ExportSettings onClose={() => setShowExportSettings(false)} mediaFiles={mediaFiles} />
         ) : (
           <PanelGroup direction="horizontal">
-            {/* 左パネル: メディアリスト */}
+            {/* 左パネル: タイムライン */}
             <Panel defaultSize={25} minSize={15}>
-              <MediaList
+              <TimelinePane
                 mediaFiles={mediaFiles}
                 selectedMedia={selectedMedia}
                 onSelectMedia={handleSelectMedia}
@@ -159,11 +158,11 @@ const App: React.FC = () => {
             
             {renderResizeHandle()}
             
-            {/* 右パネル: プレーヤーとタイムライン */}
+            {/* 右パネル: プレーヤーとトリミングペイン */}
             <Panel defaultSize={75}>
               <PanelGroup direction="vertical">
                 {/* 上部: ビデオプレーヤー */}
-                <Panel defaultSize={50} minSize={30}>
+                <Panel defaultSize={70} minSize={50}>
                   <VideoPlayer
                     media={selectedMedia}
                   />
@@ -171,21 +170,11 @@ const App: React.FC = () => {
                 
                 {renderResizeHandle({ className: "horizontal" })}
                 
-                {/* 下部: タイムラインとトリミング */}
-                <Panel defaultSize={50}>
-                  <PanelGroup direction="vertical">
-                    <Panel defaultSize={70} minSize={40}>
-                      <Timeline 
-                        selectedMedia={selectedMedia}
-                      />
-                    </Panel>
-                    
-                    {renderResizeHandle({ className: "horizontal" })}
-                    
-                    <Panel defaultSize={30}>
-                      <TrimControls />
-                    </Panel>
-                  </PanelGroup>
+                {/* 下部: トリミングペイン */}
+                <Panel defaultSize={30} minSize={20}>
+                  <TrimPane 
+                    selectedMedia={selectedMedia}
+                  />
                 </Panel>
               </PanelGroup>
             </Panel>
