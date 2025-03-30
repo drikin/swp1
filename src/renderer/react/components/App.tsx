@@ -145,7 +145,7 @@ const App: React.FC = () => {
       {/* メインコンテンツ */}
       <div className="app-content">
         {showExportSettings ? (
-          <ExportSettings onClose={() => setShowExportSettings(false)} />
+          <ExportSettings onClose={() => setShowExportSettings(false)} mediaFiles={mediaFiles} />
         ) : (
           <PanelGroup direction="horizontal">
             {/* 左パネル: メディアリスト */}

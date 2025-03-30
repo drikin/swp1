@@ -4,6 +4,16 @@ interface Window {
     checkFFmpeg: () => Promise<{ available: boolean, version?: string, path?: string }>;
     getMediaInfo: (filePath: string) => Promise<any>;
     generateWaveform: (filePath: string, outputPath?: string | null) => Promise<any>;
+    exportCombinedVideo: (options: {
+      mediaFiles: any[];
+      outputPath: string;
+      settings: {
+        resolution: string;
+        fps: string;
+        codec: string;
+        format: string;
+      }
+    }) => Promise<{ success: boolean; outputPath?: string; error?: string }>;
     
     // ファイル操作関連
     openFileDialog: (fileTypes: string[]) => Promise<any[]>;
