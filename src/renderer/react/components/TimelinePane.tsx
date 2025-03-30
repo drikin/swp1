@@ -8,6 +8,7 @@ interface TimelinePaneProps {
   onAddFiles?: () => Promise<void>; // ファイル追加関数
   onDropFiles?: (filePaths: string[]) => Promise<void>; // ドロップしたファイルを直接追加する関数
   onReorderMedia?: (result: { source: number; destination: number }) => void; // 素材の並び替え関数
+  onDeleteMedias?: (mediaIds: string[]) => void; // 素材削除関数
 }
 
 // Electronでのファイル型拡張（pathプロパティを持つ）
@@ -22,10 +23,20 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
   onSelectMedia,
   onAddFiles,
   onDropFiles,
-  onReorderMedia
+  onReorderMedia,
+  onDeleteMedias
 }) => {
   const [isDragging, setIsDragging] = useState(false);
+  const [selectedMedias, setSelectedMedias] = useState<string[]>([]);
   const timelinePaneRef = useRef<HTMLDivElement>(null);
+
+  // 単一メディア選択時に選択リストも更新
+  useEffect(() => {
+    if (selectedMedia) {
+      // 単一選択の場合は選択リストをリセット
+      setSelectedMedias([selectedMedia.id]);
+    }
+  }, [selectedMedia]);
 
   // ドラッグ&ドロップ処理の設定
   useEffect(() => {
@@ -100,6 +111,46 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
     }
   };
 
+  // 複数選択の処理（Ctrlキーを押しながらのクリック）
+  const handleMediaClick = (media: any, e: React.MouseEvent) => {
+    if (e.ctrlKey || e.metaKey) {
+      // Ctrlキーが押されている場合は複数選択
+      e.preventDefault(); // 通常の選択を防止
+      
+      setSelectedMedias(prev => {
+        const isSelected = prev.includes(media.id);
+        if (isSelected) {
+          // すでに選択されている場合は選択解除
+          return prev.filter(id => id !== media.id);
+        } else {
+          // 選択されていない場合は選択に追加
+          return [...prev, media.id];
+        }
+      });
+    } else {
+      // 通常のクリック（単一選択）
+      onSelectMedia(media);
+    }
+  };
+
+  // 選択した素材を削除
+  const handleDeleteSelected = () => {
+    if (selectedMedias.length > 0 && onDeleteMedias) {
+      onDeleteMedias(selectedMedias);
+      setSelectedMedias([]);
+    }
+  };
+
+  // 全選択
+  const handleSelectAll = () => {
+    setSelectedMedias(mediaFiles.map(media => media.id));
+  };
+
+  // 選択解除
+  const handleDeselectAll = () => {
+    setSelectedMedias([]);
+  };
+
   // ファイルサイズを表示用にフォーマット
   const formatFileSize = (size: number): string => {
     if (size < 1024) return `${size} B`;
@@ -128,7 +179,38 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
     >
       <div className="panel-header">
         <h2>タイムライン</h2>
-        <span className="item-count">{mediaFiles.length}アイテム</span>
+        <div className="timeline-controls">
+          <span className="item-count">{mediaFiles.length}アイテム</span>
+          {mediaFiles.length > 0 && (
+            <>
+              <button 
+                className="compact-btn" 
+                title="全選択"
+                onClick={handleSelectAll}
+              >
+                全選択
+              </button>
+              {selectedMedias.length > 0 && (
+                <>
+                  <button 
+                    className="compact-btn" 
+                    title="選択解除"
+                    onClick={handleDeselectAll}
+                  >
+                    解除
+                  </button>
+                  <button 
+                    className="compact-btn delete-btn" 
+                    title="選択した素材を削除"
+                    onClick={handleDeleteSelected}
+                  >
+                    削除
+                  </button>
+                </>
+              )}
+            </>
+          )}
+        </div>
       </div>
       <div className="panel-content">
         {mediaFiles.length === 0 ? (
@@ -155,8 +237,8 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
                           ref={provided.innerRef}
                           {...provided.draggableProps}
                           {...provided.dragHandleProps}
-                          className={`media-item ${selectedMedia?.id === media.id ? 'selected' : ''} ${snapshot.isDragging ? 'dragging' : ''}`}
-                          onClick={() => onSelectMedia(media)}
+                          className={`media-item ${selectedMedia?.id === media.id ? 'selected' : ''} ${selectedMedias.includes(media.id) ? 'multi-selected' : ''} ${snapshot.isDragging ? 'dragging' : ''}`}
+                          onClick={(e) => handleMediaClick(media, e)}
                         >
                           <div className="media-thumbnail">
                             {media.thumbnail ? (

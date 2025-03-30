@@ -146,6 +146,22 @@ const App: React.FC = () => {
     setStatus('素材の順序を変更しました');
   };
 
+  // メディアファイルの削除処理
+  const handleDeleteMedias = (mediaIds: string[]) => {
+    // 削除対象ではないファイルだけを残す
+    const remainingFiles = mediaFiles.filter(media => !mediaIds.includes(media.id));
+    
+    // 状態を更新
+    setMediaFiles(remainingFiles);
+    
+    // 選択中のメディアが削除された場合は選択を解除
+    if (selectedMedia && mediaIds.includes(selectedMedia.id)) {
+      setSelectedMedia(null);
+    }
+    
+    setStatus(`${mediaIds.length}件の素材を削除しました`);
+  };
+
   // メディア選択処理
   const handleSelectMedia = (media: any) => {
     setSelectedMedia(media);
@@ -188,6 +204,7 @@ const App: React.FC = () => {
                 onAddFiles={handleAddFiles}
                 onDropFiles={handleDropFiles}
                 onReorderMedia={handleReorderMedia}
+                onDeleteMedias={handleDeleteMedias}
               />
             </Panel>
             

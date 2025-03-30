@@ -380,7 +380,8 @@ button:active {
 
 .timeline-controls {
   display: flex;
-  gap: 0.2rem;
+  align-items: center;
+  gap: 0.3rem;
 }
 
 /* トリミングコントロール */
@@ -596,4 +597,19 @@ select {
 .panel.dragover {
   border: 2px dashed #0078d7;
   background-color: rgba(0, 120, 215, 0.15);
+}
+
+/* 複数選択されたアイテムのスタイル */
+.media-item.multi-selected {
+  background-color: rgba(0, 120, 215, 0.3);
+  border: 1px solid #0078d7;
+}
+
+/* 削除ボタン */
+.delete-btn {
+  background-color: #d70040;
+}
+
+.delete-btn:hover {
+  background-color: #ff0048;
 } 
