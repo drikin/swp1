@@ -69,14 +69,15 @@ const App: React.FC = () => {
       
       if (filePaths.length > 0 && window.api) {
         try {
+          // ファイルパスを直接渡して処理（ダイアログをスキップ）
           const files = await window.api.openFileDialog(filePaths);
           if (files && files.length > 0) {
             setMediaFiles(prev => [...prev, ...files]);
             setStatus(`${files.length}件のファイルを追加しました`);
           }
         } catch (error) {
-          console.error('ファイル選択エラー:', error);
-          setStatus('ファイル選択に失敗しました');
+          console.error('ファイル追加エラー:', error);
+          setStatus('ファイル追加に失敗しました');
         }
       }
     };
@@ -110,6 +111,23 @@ const App: React.FC = () => {
       } catch (error) {
         console.error('ファイル選択エラー:', error);
         setStatus('ファイル選択に失敗しました');
+      }
+    }
+  };
+
+  // ドロップしたファイルを直接追加する処理
+  const handleDropFiles = async (filePaths: string[]) => {
+    if (filePaths.length > 0 && window.api) {
+      try {
+        // ファイルパスを直接渡して処理（ダイアログをスキップ）
+        const files = await window.api.openFileDialog(filePaths);
+        if (files && files.length > 0) {
+          setMediaFiles(prev => [...prev, ...files]);
+          setStatus(`${files.length}件のファイルを追加しました`);
+        }
+      } catch (error) {
+        console.error('ファイル追加エラー:', error);
+        setStatus('ファイル追加に失敗しました');
       }
     }
   };
@@ -153,6 +171,8 @@ const App: React.FC = () => {
                 mediaFiles={mediaFiles}
                 selectedMedia={selectedMedia}
                 onSelectMedia={handleSelectMedia}
+                onAddFiles={handleAddFiles}
+                onDropFiles={handleDropFiles}
               />
             </Panel>
             
