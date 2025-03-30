@@ -1,6 +1,7 @@
 /* 基本スタイル */
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  font-size: 9pt;
   margin: 0;
   padding: 0;
   background-color: #1e1e1e;
@@ -29,7 +30,7 @@ body {
   display: flex;
   align-items: center;
   justify-content: center;
-  font-size: 1.5rem;
+  font-size: 1.2rem;
   color: #fff;
   z-index: 1000;
 }
@@ -39,14 +40,14 @@ body {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  padding: 0.75rem 1rem;
+  padding: 0.3rem 0.5rem;
   background-color: #252525;
   border-bottom: 1px solid #333;
 }
 
 .app-header h1 {
   margin: 0;
-  font-size: 1.2rem;
+  font-size: 1rem;
   font-weight: 500;
 }
 
@@ -75,7 +76,7 @@ body {
 .panel {
   background-color: #252525;
   border-radius: 4px;
-  margin: 0.5rem;
+  margin: 0.3rem;
   border: 1px solid #333;
   overflow: hidden;
   height: 100%;
@@ -108,7 +109,7 @@ body {
   background-color: transparent;
   color: #ccc;
   border: none;
-  font-size: 1.2rem;
+  font-size: 1rem;
   padding: 0.25rem 0.5rem;
   cursor: pointer;
   transition: color 0.2s;
@@ -121,15 +122,16 @@ body {
 
 .panel-header {
   background-color: #333;
-  padding: 0.5rem 0.75rem;
+  padding: 0.25rem 0.5rem;
   font-weight: 500;
+  font-size: 0.9rem;
   display: flex;
   justify-content: space-between;
   align-items: center;
 }
 
 .panel-content {
-  padding: 0.75rem;
+  padding: 0.4rem;
   flex: 1;
   overflow: auto;
 }
@@ -142,7 +144,7 @@ button {
   border-radius: 4px;
   padding: 0.5rem 1rem;
   cursor: pointer;
-  font-size: 0.9rem;
+  font-size: 0.85rem;
   transition: background-color 0.2s;
 }
 
@@ -188,10 +190,10 @@ button:active {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0.25rem 1rem;
+  padding: 0.15rem 0.5rem;
   background-color: #252525;
   border-top: 1px solid #333;
-  font-size: 0.85rem;
+  font-size: 0.8rem;
 }
 
 /* メディアリスト */
@@ -229,7 +231,7 @@ button:active {
 }
 
 .placeholder-thumbnail {
-  font-size: 1.5rem;
+  font-size: 1.2rem;
 }
 
 .media-details {
