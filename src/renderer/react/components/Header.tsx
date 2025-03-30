@@ -15,8 +15,8 @@ const Header: React.FC<HeaderProps> = ({ taskCount, onAddFiles, onToggleExport }
         処理中: <span>{taskCount}</span>件
       </div>
       <div className="controls">
-        <button onClick={onAddFiles}>素材を追加</button>
-        <button onClick={onToggleExport} className="export-toggle-btn">書き出し設定</button>
+        <button className="header-btn" onClick={onAddFiles}>素材を追加</button>
+        <button className="header-btn export-toggle-btn" onClick={onToggleExport}>書き出し設定</button>
       </div>
     </header>
   );
