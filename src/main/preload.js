@@ -12,7 +12,7 @@ try {
     generateWaveform: (filePath, outputPath) => ipcRenderer.invoke('generate-waveform', filePath, outputPath),
     
     // ファイル操作関連
-    openFileDialog: () => ipcRenderer.invoke('open-file-dialog'),
+    openFileDialog: (paths) => ipcRenderer.invoke('open-file-dialog', paths),
     openDirectoryDialog: () => ipcRenderer.invoke('open-directory-dialog'),
     
     // 通信関連

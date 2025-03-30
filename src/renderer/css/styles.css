@@ -81,10 +81,18 @@ body {
   border-radius: 4px;
   padding: 10px;
   overflow-y: auto;
+  transition: all 0.3s ease;
+  border: 2px dashed transparent;
+}
+
+.media-list-container.drag-over {
+  border-color: #0066cc;
+  background-color: rgba(0, 102, 204, 0.1);
 }
 
 .media-list {
   margin-top: 10px;
+  min-height: 100px;
 }
 
 .media-item {

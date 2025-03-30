@@ -64,6 +64,45 @@ const AppState = {
   }
 };
 
+// サポートされているファイル拡張子
+const SUPPORTED_EXTENSIONS = {
+  video: ['mp4', 'mov', 'avi', 'webm', 'mkv'],
+  image: ['jpg', 'jpeg', 'png', 'gif', 'bmp']
+};
+
+// ファイルの処理（フィルタリングと追加）を一元化した関数
+async function processMediaFiles(filePaths) {
+  if (!filePaths || filePaths.length === 0) {
+    return;
+  }
+
+  console.log(`Processing ${filePaths.length} files`);
+  
+  // サポートされている拡張子のファイルのみをフィルタリング
+  const allSupportedExtensions = [...SUPPORTED_EXTENSIONS.video, ...SUPPORTED_EXTENSIONS.image];
+  const validFilePaths = filePaths.filter(path => {
+    const ext = path.split('.').pop().toLowerCase();
+    return allSupportedExtensions.includes(ext);
+  });
+  
+  console.log(`Found ${validFilePaths.length} supported files`);
+  
+  if (validFilePaths.length === 0) {
+    // サポートされているファイルがない場合はメッセージを表示
+    document.getElementById('status-message').textContent = 
+      "サポートされていないファイル形式です。動画や画像ファイルのみ追加できます。";
+    setTimeout(() => {
+      if (AppState.processingTasks === 0) {
+        document.getElementById('status-message').textContent = "準備完了";
+      }
+    }, 3000);
+    return;
+  }
+  
+  // 有効なファイルをメディアリストに追加
+  MediaList.addMediaFiles(validFilePaths);
+}
+
 // アプリケーションの初期化
 async function initializeApp() {
   try {
@@ -97,23 +136,62 @@ async function initializeApp() {
 
 // イベントリスナーの設定
 function setupEventListeners() {
-  // ファイル追加ボタン
+  // 素材追加ボタン
   const addFilesBtn = document.getElementById('add-files-btn');
   addFilesBtn.addEventListener('click', async () => {
-    const filePaths = await window.api.openFileDialog();
-    if (filePaths && filePaths.length > 0) {
-      MediaList.addMediaFiles(filePaths);
+    try {
+      const filePaths = await window.api.openFileDialog();
+      processMediaFiles(filePaths);
+    } catch (error) {
+      console.error('Error opening file dialog:', error);
     }
   });
   
-  // フォルダ追加ボタン
-  const addFolderBtn = document.getElementById('add-folder-btn');
-  addFolderBtn.addEventListener('click', async () => {
-    const folderPath = await window.api.openDirectoryDialog();
-    if (folderPath) {
-      // フォルダ内のファイルはメインプロセス側で処理
-      console.log('Selected folder:', folderPath);
-      // フォルダからのファイル読み込み処理を実装予定
+  // ドラッグ&ドロップ機能
+  const mediaListContainer = document.getElementById('area-1');
+  
+  // ドラッグ開始イベント
+  mediaListContainer.addEventListener('dragenter', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    mediaListContainer.classList.add('drag-over');
+  });
+  
+  // ドラッグ中イベント
+  mediaListContainer.addEventListener('dragover', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    mediaListContainer.classList.add('drag-over');
+  });
+  
+  // ドラッグ終了イベント
+  mediaListContainer.addEventListener('dragleave', (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!mediaListContainer.contains(e.relatedTarget)) {
+      mediaListContainer.classList.remove('drag-over');
+    }
+  });
+  
+  // ドロップイベント
+  mediaListContainer.addEventListener('drop', async (e) => {
+    e.preventDefault();
+    e.stopPropagation();
+    mediaListContainer.classList.remove('drag-over');
+    
+    console.log('Drop event triggered');
+    
+    // ドロップされたファイルを取得
+    const files = e.dataTransfer.files;
+    
+    if (files && files.length > 0) {
+      console.log(`Dropped ${files.length} files`);
+      
+      // ファイルパスの配列を作成
+      const filePaths = Array.from(files).map(file => file.path);
+      
+      // 共通関数を使ってファイルを処理
+      processMediaFiles(filePaths);
     }
   });
   
@@ -172,3 +250,6 @@ document.addEventListener('DOMContentLoaded', initializeApp);
 
 // グローバルスコープでAppStateを公開
 window.AppState = AppState; 
+
+// グローバルスコープでSUPPORTED_EXTENSIONSを公開
+window.SUPPORTED_EXTENSIONS = SUPPORTED_EXTENSIONS; 

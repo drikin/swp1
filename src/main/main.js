@@ -47,7 +47,18 @@ function createWindow() {
 }
 
 // Electronの初期化が完了したらウィンドウを作成
-app.whenReady().then(createWindow);
+app.whenReady().then(() => {
+  createWindow();
+  
+  // ファイルのドラッグ&ドロップを許可
+  app.on('browser-window-created', (_, window) => {
+    window.webContents.on('did-finish-load', () => {
+      window.webContents.session.on('will-download', (e, item) => {
+        e.preventDefault();
+      });
+    });
+  });
+});
 
 // すべてのウィンドウが閉じられたときの処理 (macOS以外)
 app.on('window-all-closed', () => {
@@ -63,23 +74,73 @@ app.on('activate', () => {
   }
 });
 
+// サポートされているファイル拡張子
+const SUPPORTED_EXTENSIONS = {
+  video: ['mp4', 'mov', 'avi', 'webm', 'mkv'],
+  image: ['jpg', 'jpeg', 'png', 'gif', 'bmp']
+};
+
 // ファイル選択ダイアログを開く
-ipcMain.handle('open-file-dialog', async () => {
-  const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
-    properties: ['openFile', 'multiSelections'],
-    filters: [
-      { name: '動画ファイル', extensions: ['mp4', 'mov', 'avi'] },
-      { name: '画像ファイル', extensions: ['jpg', 'jpeg', 'png'] },
-      { name: 'すべてのファイル', extensions: ['*'] }
-    ]
-  });
-  if (canceled) {
-    return [];
+ipcMain.handle('open-file-dialog', async (event, paths) => {
+  let filePaths = [];
+  
+  // パスが既に指定されている場合（ドラッグ&ドロップの場合）
+  if (paths && Array.isArray(paths) && paths.length > 0) {
+    console.log('Using provided paths:', paths);
+    filePaths = paths;
+  } else {
+    // ダイアログを表示してファイルを選択
+    console.log('Opening file dialog');
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openFile', 'multiSelections', 'openDirectory'],
+      filters: [
+        { name: '動画ファイル', extensions: SUPPORTED_EXTENSIONS.video },
+        { name: '画像ファイル', extensions: SUPPORTED_EXTENSIONS.image },
+        { name: 'すべてのファイル', extensions: ['*'] }
+      ]
+    });
+    
+    if (result.canceled) {
+      console.log('Dialog canceled');
+      return [];
+    }
+    filePaths = result.filePaths;
   }
-  return filePaths;
+  
+  // ファイルとフォルダーを処理
+  const allFiles = [];
+  
+  for (const filePath of filePaths) {
+    try {
+      if (fs.existsSync(filePath)) {
+        const stats = fs.statSync(filePath);
+        
+        if (stats.isDirectory()) {
+          // フォルダーの場合は再帰的に探索
+          console.log('Processing directory:', filePath);
+          const filesInDir = getFilesRecursively(filePath);
+          allFiles.push(...filesInDir);
+        } else {
+          // 単一ファイルの場合は拡張子をチェック
+          const ext = path.extname(filePath).toLowerCase().replace('.', '');
+          const allSupportedExtensions = [...SUPPORTED_EXTENSIONS.video, ...SUPPORTED_EXTENSIONS.image];
+          
+          if (allSupportedExtensions.includes(ext)) {
+            console.log('Adding file:', filePath);
+            allFiles.push(filePath);
+          }
+        }
+      }
+    } catch (error) {
+      console.error('Error processing path:', error);
+    }
+  }
+  
+  console.log(`Found ${allFiles.length} valid files`);
+  return allFiles;
 });
 
-// フォルダ選択ダイアログを開く
+// フォルダ選択ダイアログを開く (廃止予定)
 ipcMain.handle('open-directory-dialog', async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
     properties: ['openDirectory']
@@ -89,6 +150,41 @@ ipcMain.handle('open-directory-dialog', async () => {
   }
   return filePaths[0];
 });
+
+// フォルダーを再帰的に探索してファイルを取得する関数
+function getFilesRecursively(dir) {
+  const files = [];
+  
+  try {
+    const entries = fs.readdirSync(dir, { withFileTypes: true });
+    
+    for (const entry of entries) {
+      const fullPath = path.join(dir, entry.name);
+      
+      try {
+        if (entry.isDirectory()) {
+          // ディレクトリの場合は再帰的に探索
+          const subDirFiles = getFilesRecursively(fullPath);
+          files.push(...subDirFiles);
+        } else {
+          // ファイルの場合は拡張子をチェック
+          const ext = path.extname(entry.name).toLowerCase().replace('.', '');
+          const allSupportedExtensions = [...SUPPORTED_EXTENSIONS.video, ...SUPPORTED_EXTENSIONS.image];
+          
+          if (allSupportedExtensions.includes(ext)) {
+            files.push(fullPath);
+          }
+        }
+      } catch (err) {
+        console.error(`Error processing entry ${fullPath}:`, err);
+      }
+    }
+  } catch (error) {
+    console.error(`Error reading directory ${dir}:`, error);
+  }
+  
+  return files;
+}
 
 // FFmpegコマンドを実行する関数
 function runFFmpegCommand(args) {
@@ -138,10 +234,39 @@ ipcMain.handle('get-media-info', async (event, filePath) => {
       '-i', filePath,
       '-hide_banner'
     ]);
-    return { success: true, info: result.stderr }; // FFmpegは情報をstderrに出力する
+
+    // メタデータから撮影日時を取得
+    let creationTime = null;
+    const creationTimeMatch = result.stderr.match(/creation_time\s*:\s*(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})/i);
+    if (creationTimeMatch) {
+      creationTime = new Date(creationTimeMatch[1]).getTime();
+    } else {
+      // メタデータがない場合はファイルの作成日時を使用
+      const stats = fs.statSync(filePath);
+      creationTime = stats.birthtimeMs || stats.mtimeMs;
+    }
+
+    return { 
+      success: true, 
+      info: result.stderr,
+      creationTime 
+    }; // FFmpegは情報をstderrに出力する
   } catch (error) {
     // エラーの場合でもFFmpegは情報をstderrに出力するため、その情報を使用
-    return { success: true, info: error.message };
+    let creationTime = null;
+    try {
+      // メタデータが取得できない場合はファイルの作成日時を使用
+      const stats = fs.statSync(filePath);
+      creationTime = stats.birthtimeMs || stats.mtimeMs;
+    } catch (e) {
+      console.error('Failed to get file stats:', e);
+    }
+    
+    return { 
+      success: true, 
+      info: error.message,
+      creationTime 
+    };
   }
 });
 

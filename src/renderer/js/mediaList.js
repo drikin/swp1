@@ -4,6 +4,9 @@
 const MediaList = {
   // メディアファイルを追加
   async addMediaFiles(filePaths) {
+    // 読み込み中のファイル情報を一時保存する配列
+    const mediaItemsToAdd = [];
+
     for (const filePath of filePaths) {
       try {
         // タスク追加
@@ -18,9 +21,9 @@ const MediaList = {
         // ファイルタイプ（拡張子）を取得
         const fileType = fileName.split('.').pop().toLowerCase();
         
-        // 動画か画像かを判定
-        const isVideo = ['mp4', 'mov', 'avi', 'webm', 'mkv'].includes(fileType);
-        const isImage = ['jpg', 'jpeg', 'png', 'gif', 'bmp'].includes(fileType);
+        // 定義済みのサポート拡張子リストを使用して動画か画像かを判定
+        const isVideo = window.SUPPORTED_EXTENSIONS.video.includes(fileType);
+        const isImage = window.SUPPORTED_EXTENSIONS.image.includes(fileType);
         
         // 新しいメディアアイテムを作成
         const mediaItem = {
@@ -31,7 +34,8 @@ const MediaList = {
           duration: 0, // 後で設定
           width: 0,    // 後で設定
           height: 0,   // 後で設定
-          waveform: null // 波形データ（後で生成）
+          waveform: null, // 波形データ（後で生成）
+          creationTime: mediaInfo.creationTime || Date.now() // 撮影日時または現在時刻
         };
         
         // メディア情報からデータを抽出
@@ -58,29 +62,8 @@ const MediaList = {
           mediaItem.duration = 5.0;
         }
         
-        // メディアアイテムを状態に追加
-        window.AppState.mediaItems.push(mediaItem);
-        window.AppState.updateState({ mediaItems: window.AppState.mediaItems });
-        
-        // UIにメディアアイテムを追加
-        this.renderMediaItem(mediaItem);
-        
-        // 波形データを生成（動画/音声の場合のみ）
-        if (mediaItem.type === 'video') {
-          try {
-            const waveformData = await window.api.generateWaveform(filePath);
-            if (waveformData.success) {
-              mediaItem.waveform = waveformData.waveform;
-              // 波形データがあれば波形UIを更新
-              if (window.AppState.currentItemIndex >= 0 && 
-                  window.AppState.mediaItems[window.AppState.currentItemIndex].id === mediaItem.id) {
-                window.WaveformModule.drawWaveform(waveformData.waveform);
-              }
-            }
-          } catch (error) {
-            console.error('Failed to generate waveform:', error);
-          }
-        }
+        // 一時配列に追加
+        mediaItemsToAdd.push(mediaItem);
         
         // タスク完了
         window.AppState.completeTask();
@@ -90,6 +73,45 @@ const MediaList = {
         window.AppState.completeTask();
       }
     }
+
+    // 撮影日時でファイルをソート
+    mediaItemsToAdd.sort((a, b) => a.creationTime - b.creationTime);
+
+    // ソートしたメディアアイテムを一括で追加
+    for (const mediaItem of mediaItemsToAdd) {
+      // メディアアイテムを状態に追加
+      window.AppState.mediaItems.push(mediaItem);
+      
+      // UIにメディアアイテムを追加
+      this.renderMediaItem(mediaItem);
+      
+      // 波形データを生成（動画/音声の場合のみ）
+      if (mediaItem.type === 'video') {
+        try {
+          // タスク追加（波形データ生成用）
+          window.AppState.addTask();
+          
+          const waveformData = await window.api.generateWaveform(mediaItem.path);
+          if (waveformData.success) {
+            mediaItem.waveform = waveformData.waveform;
+            // 波形データがあれば波形UIを更新
+            if (window.AppState.currentItemIndex >= 0 && 
+                window.AppState.mediaItems[window.AppState.currentItemIndex].id === mediaItem.id) {
+              window.WaveformModule.drawWaveform(waveformData.waveform);
+            }
+          }
+          
+          // タスク完了
+          window.AppState.completeTask();
+        } catch (error) {
+          console.error('Failed to generate waveform:', error);
+          window.AppState.completeTask();
+        }
+      }
+    }
+    
+    // 状態を更新
+    window.AppState.updateState({ mediaItems: window.AppState.mediaItems });
   },
   
   // メディアアイテムのUIレンダリング
