@@ -15,7 +15,6 @@
     "electron-builder": "^24.9.1"
   },
   "dependencies": {
-    "ffmpeg-static": "^5.2.0"
   },
   "build": {
     "appId": "com.super-watarec.app",

@@ -1,8 +1,18 @@
 const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const ffmpegPath = require('ffmpeg-static');
-const { spawn } = require('child_process');
+const { spawn, execSync } = require('child_process');
+
+// システムのFFmpegパスを動的に取得
+let ffmpegPath;
+try {
+  // 'which ffmpeg'コマンドでパスを取得
+  ffmpegPath = execSync('which ffmpeg').toString().trim();
+  console.log('システムのFFmpegを使用します:', ffmpegPath);
+} catch (error) {
+  console.error('システムにFFmpegが見つかりません:', error);
+  ffmpegPath = 'ffmpeg'; // 環境変数PATHから検索する
+}
 
 // FFmpegのパスを確認
 console.log('FFmpeg path:', ffmpegPath);
