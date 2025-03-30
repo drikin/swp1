@@ -707,4 +707,9 @@ ipcMain.handle('export-combined-video', async (event, { mediaFiles, outputPath, 
   }
 });
 
+// デスクトップパスを取得
+ipcMain.handle('get-desktop-path', () => {
+  return app.getPath('desktop');
+});
+
 // その他のIPC処理をここに追加 

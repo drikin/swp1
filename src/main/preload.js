@@ -15,6 +15,7 @@ try {
     // ファイル操作関連
     openFileDialog: (paths) => ipcRenderer.invoke('open-file-dialog', paths),
     openDirectoryDialog: () => ipcRenderer.invoke('open-directory-dialog'),
+    getDesktopPath: () => ipcRenderer.invoke('get-desktop-path'),
     
     // 通信関連
     on: (channel, callback) => {

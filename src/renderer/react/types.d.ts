@@ -16,8 +16,9 @@ interface Window {
     }) => Promise<{ success: boolean; outputPath?: string; error?: string }>;
     
     // ファイル操作関連
-    openFileDialog: (fileTypes: string[]) => Promise<any[]>;
-    openDirectoryDialog: () => Promise<string>;
+    openFileDialog: (paths?: string[]) => Promise<any[]>;
+    openDirectoryDialog: () => Promise<string | null>;
+    getDesktopPath: () => Promise<string>;
     
     // 通信関連
     on: (channel: string, callback: (...args: any[]) => void) => void;

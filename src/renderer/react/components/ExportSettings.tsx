@@ -9,7 +9,7 @@ interface ExportSettingsProps {
 const ExportSettings: React.FC<ExportSettingsProps> = ({ onClose, mediaFiles = [] }) => {
   const [resolution, setResolution] = useState('1080p');
   const [fps, setFps] = useState('30');
-  const [codec, setCodec] = useState('h264');
+  const [codec, setCodec] = useState('h265');
   const [format, setFormat] = useState('mp4');
   const [isExporting, setIsExporting] = useState(false);
   const [outputPath, setOutputPath] = useState('');
@@ -19,6 +19,25 @@ const ExportSettings: React.FC<ExportSettingsProps> = ({ onClose, mediaFiles = [
   const [totalFiles, setTotalFiles] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [exportResult, setExportResult] = useState<{ success: boolean; outputPath?: string } | null>(null);
+
+  // 初期化時にデスクトップパスを設定
+  useEffect(() => {
+    const initOutputPath = async () => {
+      if (window.api) {
+        try {
+          // デスクトップパスを取得
+          const desktopPath = await window.api.getDesktopPath();
+          if (desktopPath) {
+            setOutputPath(desktopPath);
+          }
+        } catch (error) {
+          console.error('デスクトップパス取得エラー:', error);
+        }
+      }
+    };
+    
+    initOutputPath();
+  }, []);
 
   // 進捗イベントのリスナー
   useEffect(() => {
