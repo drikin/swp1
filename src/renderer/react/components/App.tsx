@@ -132,6 +132,20 @@ const App: React.FC = () => {
     }
   };
 
+  // メディアファイルの並び替え処理
+  const handleReorderMedia = (result: { source: number; destination: number }) => {
+    const { source, destination } = result;
+    
+    // 並び替え処理
+    const reorderedFiles = Array.from(mediaFiles);
+    const [removed] = reorderedFiles.splice(source, 1);
+    reorderedFiles.splice(destination, 0, removed);
+    
+    // 状態を更新
+    setMediaFiles(reorderedFiles);
+    setStatus('素材の順序を変更しました');
+  };
+
   // メディア選択処理
   const handleSelectMedia = (media: any) => {
     setSelectedMedia(media);
@@ -173,6 +187,7 @@ const App: React.FC = () => {
                 onSelectMedia={handleSelectMedia}
                 onAddFiles={handleAddFiles}
                 onDropFiles={handleDropFiles}
+                onReorderMedia={handleReorderMedia}
               />
             </Panel>
             

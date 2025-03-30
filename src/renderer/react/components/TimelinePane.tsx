@@ -1,4 +1,5 @@
 import React, { useState, useRef, useEffect } from 'react';
+import { DragDropContext, Droppable, Draggable, DropResult } from '@hello-pangea/dnd';
 
 interface TimelinePaneProps {
   mediaFiles: any[];
@@ -6,6 +7,7 @@ interface TimelinePaneProps {
   onSelectMedia: (media: any) => void;
   onAddFiles?: () => Promise<void>; // ファイル追加関数
   onDropFiles?: (filePaths: string[]) => Promise<void>; // ドロップしたファイルを直接追加する関数
+  onReorderMedia?: (result: { source: number; destination: number }) => void; // 素材の並び替え関数
 }
 
 // Electronでのファイル型拡張（pathプロパティを持つ）
@@ -19,7 +21,8 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
   selectedMedia,
   onSelectMedia,
   onAddFiles,
-  onDropFiles
+  onDropFiles,
+  onReorderMedia
 }) => {
   const [isDragging, setIsDragging] = useState(false);
   const timelinePaneRef = useRef<HTMLDivElement>(null);
@@ -29,7 +32,11 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
     const handleDragOver = (e: DragEvent) => {
       e.preventDefault();
       e.stopPropagation();
-      setIsDragging(true);
+      
+      // ドラッグ中のデータにファイルが含まれている場合のみドラッグ状態を有効にする
+      if (e.dataTransfer && e.dataTransfer.types.includes('Files')) {
+        setIsDragging(true);
+      }
     };
 
     const handleDragLeave = (e: DragEvent) => {
@@ -43,19 +50,20 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
       e.stopPropagation();
       setIsDragging(false);
       
-      if (!e.dataTransfer || !e.dataTransfer.files || e.dataTransfer.files.length === 0) return;
-      
-      const filePaths: string[] = [];
-      for (let i = 0; i < e.dataTransfer.files.length; i++) {
-        const file = e.dataTransfer.files[i] as ElectronFile;
-        if (file.path) {
-          filePaths.push(file.path);
+      // ファイルのドロップ処理
+      if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        const filePaths: string[] = [];
+        for (let i = 0; i < e.dataTransfer.files.length; i++) {
+          const file = e.dataTransfer.files[i] as ElectronFile;
+          if (file.path) {
+            filePaths.push(file.path);
+          }
         }
-      }
-      
-      // ドロップされたファイルパスを直接処理
-      if (filePaths.length > 0 && onDropFiles) {
-        await onDropFiles(filePaths);
+        
+        // ドロップされたファイルパスを直接処理
+        if (filePaths.length > 0 && onDropFiles) {
+          await onDropFiles(filePaths);
+        }
       }
     };
 
@@ -74,6 +82,23 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
       }
     };
   }, [onDropFiles]);
+
+  // react-beautiful-dndのドラッグ終了ハンドラ
+  const handleDragEnd = (result: DropResult) => {
+    // ドロップ先がない場合は何もしない
+    if (!result.destination) return;
+    
+    // 同じ位置にドロップした場合は何もしない
+    if (result.destination.index === result.source.index) return;
+    
+    // 親コンポーネントに並び替えを通知
+    if (onReorderMedia) {
+      onReorderMedia({
+        source: result.source.index,
+        destination: result.destination.index
+      });
+    }
+  };
 
   // ファイルサイズを表示用にフォーマット
   const formatFileSize = (size: number): string => {
@@ -106,38 +131,59 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
         <span className="item-count">{mediaFiles.length}アイテム</span>
       </div>
       <div className="panel-content">
-        <div className="media-list">
-          {mediaFiles.length === 0 ? (
-            <div className="empty-list">
-              素材が追加されていません。「素材を追加」ボタンをクリックするか、ファイルをドラッグ&ドロップしてください。
-            </div>
-          ) : (
-            mediaFiles.map(media => (
-              <div 
-                key={media.id} 
-                className={`media-item ${selectedMedia?.id === media.id ? 'selected' : ''}`}
-                onClick={() => onSelectMedia(media)}
-              >
-                <div className="media-thumbnail">
-                  {media.thumbnail ? (
-                    <img src={media.thumbnail} alt={media.name} />
-                  ) : (
-                    <div className="placeholder-thumbnail">
-                      {media.type.startsWith('video') ? '🎬' : '🔊'}
-                    </div>
-                  )}
+        {mediaFiles.length === 0 ? (
+          <div className="empty-list">
+            素材が追加されていません。「素材を追加」ボタンをクリックするか、ファイルをドラッグ&ドロップしてください。
+          </div>
+        ) : (
+          <DragDropContext onDragEnd={handleDragEnd}>
+            <Droppable droppableId="timeline-media-list">
+              {(provided) => (
+                <div 
+                  className="media-list"
+                  {...provided.droppableProps}
+                  ref={provided.innerRef}
+                >
+                  {mediaFiles.map((media, index) => (
+                    <Draggable 
+                      key={media.id} 
+                      draggableId={media.id} 
+                      index={index}
+                    >
+                      {(provided, snapshot) => (
+                        <div 
+                          ref={provided.innerRef}
+                          {...provided.draggableProps}
+                          {...provided.dragHandleProps}
+                          className={`media-item ${selectedMedia?.id === media.id ? 'selected' : ''} ${snapshot.isDragging ? 'dragging' : ''}`}
+                          onClick={() => onSelectMedia(media)}
+                        >
+                          <div className="media-thumbnail">
+                            {media.thumbnail ? (
+                              <img src={media.thumbnail} alt={media.name} />
+                            ) : (
+                              <div className="placeholder-thumbnail">
+                                {media.type.startsWith('video') ? '🎬' : '🔊'}
+                              </div>
+                            )}
+                          </div>
+                          <div className="media-details">
+                            <div className="media-name">{media.name}</div>
+                            <div className="media-info">
+                              {media.duration && <span>{formatDuration(media.duration)}</span>}
+                              <span>{formatFileSize(media.size)}</span>
+                            </div>
+                          </div>
+                        </div>
+                      )}
+                    </Draggable>
+                  ))}
+                  {provided.placeholder}
                 </div>
-                <div className="media-details">
-                  <div className="media-name">{media.name}</div>
-                  <div className="media-info">
-                    {media.duration && <span>{formatDuration(media.duration)}</span>}
-                    <span>{formatFileSize(media.size)}</span>
-                  </div>
-                </div>
-              </div>
-            ))
-          )}
-        </div>
+              )}
+            </Droppable>
+          </DragDropContext>
+        )}
       </div>
     </div>
   );
