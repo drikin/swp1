@@ -107,7 +107,7 @@ ipcMain.handle('open-file-dialog', async (event, paths) => {
     filePaths = result.filePaths;
   }
   
-  // ファイルとフォルダーを処理
+  // ファイルを処理
   const allFiles = [];
   
   for (const filePath of filePaths) {
@@ -127,7 +127,16 @@ ipcMain.handle('open-file-dialog', async (event, paths) => {
           
           if (allSupportedExtensions.includes(ext)) {
             console.log('Adding file:', filePath);
-            allFiles.push(filePath);
+            // ファイル情報をオブジェクトとして追加
+            const fileObj = {
+              id: `file-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+              path: filePath,
+              name: path.basename(filePath),
+              type: ext.match(/(mp4|mov|avi|webm|mkv)/) ? 'video' : 'image',
+              size: stats.size,
+              lastModified: stats.mtime
+            };
+            allFiles.push(fileObj);
           }
         }
       }
@@ -140,7 +149,7 @@ ipcMain.handle('open-file-dialog', async (event, paths) => {
   return allFiles;
 });
 
-// フォルダ選択ダイアログを開く (廃止予定)
+// フォルダ選択ダイアログを開く
 ipcMain.handle('open-directory-dialog', async () => {
   const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
     properties: ['openDirectory']
@@ -172,7 +181,17 @@ function getFilesRecursively(dir) {
           const allSupportedExtensions = [...SUPPORTED_EXTENSIONS.video, ...SUPPORTED_EXTENSIONS.image];
           
           if (allSupportedExtensions.includes(ext)) {
-            files.push(fullPath);
+            // ファイル情報をオブジェクトとして追加
+            const stats = fs.statSync(fullPath);
+            const fileObj = {
+              id: `file-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+              path: fullPath,
+              name: entry.name,
+              type: ext.match(/(mp4|mov|avi|webm|mkv)/) ? 'video' : 'image',
+              size: stats.size,
+              lastModified: stats.mtime
+            };
+            files.push(fileObj);
           }
         }
       } catch (err) {
@@ -220,10 +239,19 @@ function runFFmpegCommand(args) {
 ipcMain.handle('check-ffmpeg', async () => {
   try {
     const result = await runFFmpegCommand(['-version']);
-    return { success: true, version: result.stdout.split('\n')[0] };
+    const versionMatch = result.stdout.match(/ffmpeg version ([^ ]+)/);
+    const version = versionMatch ? versionMatch[1] : 'unknown';
+    return { 
+      available: true, 
+      version: version,
+      path: ffmpegPath
+    };
   } catch (error) {
     console.error('FFmpeg error:', error);
-    return { success: false, error: error.message };
+    return { 
+      available: false, 
+      error: error.message 
+    };
   }
 });
 

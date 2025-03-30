@@ -4,17 +4,37 @@
   "description": "Appleシリコン最適化の動画編集GUIアプリ",
   "main": "src/main/main.js",
   "scripts": {
-    "start": "electron .",
-    "dev": "electron . --dev",
-    "build": "electron-builder"
+    "start": "npm run webpack && electron .",
+    "dev": "concurrently \"npm run webpack:watch\" \"electron . --dev\"",
+    "build": "webpack --mode production && electron-builder",
+    "webpack": "webpack --mode development",
+    "webpack:watch": "webpack --mode development --watch"
   },
   "author": "",
   "license": "MIT",
   "devDependencies": {
+    "@babel/core": "^7.24.0",
+    "@babel/preset-env": "^7.24.0",
+    "@babel/preset-react": "^7.23.3",
+    "@types/react": "^18.2.64",
+    "@types/react-dom": "^18.2.21",
+    "babel-loader": "^10.0.0",
+    "concurrently": "^8.2.2",
+    "css-loader": "^6.10.0",
     "electron": "^29.0.0",
-    "electron-builder": "^24.9.1"
+    "electron-builder": "^24.9.1",
+    "style-loader": "^3.3.4",
+    "ts-loader": "^9.5.1",
+    "typescript": "^5.4.2",
+    "webpack": "^5.90.3",
+    "webpack-cli": "^5.1.4"
   },
   "dependencies": {
+    "@emotion/react": "^11.11.4",
+    "@emotion/styled": "^11.11.0",
+    "react": "^18.2.0",
+    "react-dom": "^18.2.0",
+    "react-resizable-panels": "^2.0.11"
   },
   "build": {
     "appId": "com.super-watarec.app",
@@ -28,4 +48,4 @@
       "node_modules/**/*"
     ]
   }
-} 
+}

@@ -1,0 +1,443 @@
+/* 基本スタイル */
+body {
+  font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
+  margin: 0;
+  padding: 0;
+  background-color: #1e1e1e;
+  color: #f0f0f0;
+  overflow: hidden;
+}
+
+/* レイアウト */
+.app-container {
+  display: flex;
+  flex-direction: column;
+  height: 100vh;
+  width: 100%;
+  position: relative;
+}
+
+/* ドラッグ&ドロップ領域 */
+.app-container.dragover::after {
+  content: "ファイルをドロップしてください";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.5rem;
+  color: #fff;
+  z-index: 1000;
+}
+
+/* ヘッダースタイル */
+.app-header {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  padding: 0.75rem 1rem;
+  background-color: #252525;
+  border-bottom: 1px solid #333;
+}
+
+.app-header h1 {
+  margin: 0;
+  font-size: 1.2rem;
+  font-weight: 500;
+}
+
+.controls {
+  display: flex;
+  gap: 0.5rem;
+}
+
+.export-toggle-btn {
+  background-color: #d70040;
+}
+
+.export-toggle-btn:hover {
+  background-color: #ff0048;
+}
+
+/* コンテンツエリア */
+.app-content {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  overflow: hidden;
+}
+
+/* パネル共通スタイル */
+.panel {
+  background-color: #252525;
+  border-radius: 4px;
+  margin: 0.5rem;
+  border: 1px solid #333;
+  overflow: hidden;
+  height: 100%;
+  display: flex;
+  flex-direction: column;
+}
+
+.full-panel {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  margin: 1rem;
+  z-index: 100;
+  box-shadow: 0 0 20px rgba(0, 0, 0, 0.5);
+}
+
+.export-settings-panel {
+  max-width: 800px;
+  max-height: 90%;
+  top: 5%;
+  left: 50%;
+  transform: translateX(-50%);
+  margin: 0;
+}
+
+.close-btn {
+  background-color: transparent;
+  color: #ccc;
+  border: none;
+  font-size: 1.2rem;
+  padding: 0.25rem 0.5rem;
+  cursor: pointer;
+  transition: color 0.2s;
+}
+
+.close-btn:hover {
+  color: white;
+  background-color: rgba(255, 255, 255, 0.1);
+}
+
+.panel-header {
+  background-color: #333;
+  padding: 0.5rem 0.75rem;
+  font-weight: 500;
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+}
+
+.panel-content {
+  padding: 0.75rem;
+  flex: 1;
+  overflow: auto;
+}
+
+/* ボタンスタイル */
+button {
+  background-color: #0078d7;
+  color: white;
+  border: none;
+  border-radius: 4px;
+  padding: 0.5rem 1rem;
+  cursor: pointer;
+  font-size: 0.9rem;
+  transition: background-color 0.2s;
+}
+
+button:hover {
+  background-color: #0066b5;
+}
+
+button:active {
+  background-color: #005499;
+}
+
+/* リサイズハンドルスタイル */
+.resize-handle {
+  background-color: #333;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.resize-handle:hover {
+  background-color: #0078d7;
+}
+
+.resize-handle .handle-bar {
+  width: 4px;
+  height: 20px;
+  background-color: #555;
+  border-radius: 2px;
+}
+
+.resize-handle.horizontal {
+  height: 6px;
+  flex-direction: row;
+}
+
+.resize-handle.horizontal .handle-bar {
+  width: 20px;
+  height: 4px;
+}
+
+/* ステータスバー */
+.status-bar {
+  display: flex;
+  justify-content: space-between;
+  align-items: center;
+  padding: 0.25rem 1rem;
+  background-color: #252525;
+  border-top: 1px solid #333;
+  font-size: 0.85rem;
+}
+
+/* メディアリスト */
+.media-list {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+.media-item {
+  display: flex;
+  background-color: #2a2a2a;
+  border-radius: 4px;
+  padding: 0.5rem;
+  cursor: pointer;
+}
+
+.media-item:hover {
+  background-color: #333;
+}
+
+.media-item.selected {
+  background-color: #0078d7;
+}
+
+.media-thumbnail {
+  width: 48px;
+  height: 48px;
+  margin-right: 0.75rem;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background-color: #222;
+  border-radius: 4px;
+}
+
+.placeholder-thumbnail {
+  font-size: 1.5rem;
+}
+
+.media-details {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  justify-content: center;
+}
+
+.media-name {
+  font-weight: 500;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+.media-info {
+  display: flex;
+  gap: 0.5rem;
+  font-size: 0.85rem;
+  color: #bbb;
+}
+
+.empty-list {
+  padding: 1rem;
+  text-align: center;
+  color: #888;
+}
+
+/* ビデオプレーヤー */
+.video-player {
+  width: 100%;
+  height: calc(100% - 60px);
+  background-color: #000;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.player-element {
+  max-width: 100%;
+  max-height: 100%;
+}
+
+.empty-player {
+  color: #666;
+}
+
+.player-controls {
+  display: flex;
+  gap: 0.5rem;
+  margin-top: 0.5rem;
+  justify-content: center;
+}
+
+/* タイムライン */
+.timeline-ruler {
+  width: 100%;
+  height: 20px;
+  border-bottom: 1px solid #333;
+}
+
+.timeline-tracks {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+}
+
+.timeline-track {
+  display: flex;
+  height: 40px;
+  border-bottom: 1px solid #333;
+}
+
+.track-header {
+  width: 80px;
+  padding: 0.25rem 0.5rem;
+  background-color: #333;
+  display: flex;
+  align-items: center;
+  border-right: 1px solid #444;
+}
+
+.track-content {
+  flex: 1;
+  background-color: #2a2a2a;
+}
+
+.timeline-controls {
+  display: flex;
+  gap: 0.25rem;
+}
+
+/* トリミングコントロール */
+.trim-controls {
+  display: flex;
+  flex-direction: column;
+  gap: 1rem;
+}
+
+.trim-points {
+  display: flex;
+  gap: 1.5rem;
+}
+
+.trim-point-item {
+  display: flex;
+  align-items: center;
+  gap: 0.5rem;
+}
+
+.trim-label {
+  font-weight: 500;
+}
+
+.trim-value {
+  font-family: monospace;
+  background-color: #333;
+  padding: 0.25rem 0.5rem;
+  border-radius: 4px;
+  min-width: 80px;
+  text-align: center;
+}
+
+/* 書き出し設定 */
+.export-settings {
+  margin-top: 0.5rem;
+}
+
+.settings-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(200px, 1fr));
+  gap: 1rem;
+}
+
+.setting-group {
+  display: flex;
+  flex-direction: column;
+  gap: 0.5rem;
+}
+
+select {
+  background-color: #333;
+  color: #f0f0f0;
+  border: 1px solid #444;
+  border-radius: 4px;
+  padding: 0.5rem;
+  width: 100%;
+}
+
+.output-btn {
+  padding: 0.6rem 1rem;
+  background-color: #0078d7;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+}
+
+.output-btn:hover {
+  background-color: #0066b5;
+}
+
+.output-path {
+  font-size: 0.85rem;
+  padding: 0.5rem;
+  background-color: #333;
+  border-radius: 4px;
+  margin: 0.25rem 0;
+  word-break: break-all;
+}
+
+.export-btn {
+  padding: 0.6rem 1rem;
+  background-color: #d70040;
+  width: 100%;
+  display: flex;
+  justify-content: center;
+  margin-top: 0.5rem;
+}
+
+.export-btn:hover {
+  background-color: #ff0048;
+}
+
+.export-btn:disabled {
+  background-color: #666;
+  cursor: not-allowed;
+}
+
+/* 波形表示 */
+.waveform-container {
+  width: 100%;
+  height: 100px;
+  background-color: #1e1e1e;
+  margin-top: 0.5rem;
+  position: relative;
+  border: 1px solid #333;
+}
+
+.waveform-loading, 
+.waveform-empty {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #666;
+  font-size: 0.9rem;
+} 

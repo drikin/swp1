@@ -1,0 +1,17 @@
+{
+  "compilerOptions": {
+    "target": "es2016",
+    "module": "commonjs",
+    "esModuleInterop": true,
+    "forceConsistentCasingInFileNames": true,
+    "strict": true,
+    "skipLibCheck": true,
+    "jsx": "react",
+    "sourceMap": true,
+    "outDir": "./src/renderer/dist",
+    "moduleResolution": "node",
+    "baseUrl": ".",
+    "lib": ["dom", "es2016"]
+  },
+  "include": ["src/renderer/react/**/*"]
+} 
