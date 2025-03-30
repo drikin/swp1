@@ -1,0 +1,174 @@
+// app.js - アプリケーションのメイン処理
+
+// アプリケーションの状態管理
+const AppState = {
+  mediaItems: [], // 読み込まれたメディアアイテムのリスト
+  currentItemIndex: -1, // 現在選択されているアイテムのインデックス
+  timelineItems: [], // タイムラインに配置されたアイテムのリスト
+  processingTasks: 0, // 処理中のタスク数
+  trimInPoint: null, // トリムのIN点
+  trimOutPoint: null, // トリムのOUT点
+  ffmpegReady: false, // FFmpegが準備完了かどうか
+  
+  // 状態を更新し、UIを更新するメソッド
+  updateState(changes) {
+    // 変更を適用
+    Object.assign(this, changes);
+    
+    // UIの更新
+    this.updateUI();
+  },
+  
+  // UIを更新するメソッド
+  updateUI() {
+    // タスク数インジケータを更新
+    document.getElementById('task-count').textContent = this.processingTasks;
+    
+    // 書き出しボタンの有効/無効を設定
+    const exportBtn = document.getElementById('export-btn');
+    if (this.processingTasks > 0 || this.timelineItems.length === 0) {
+      exportBtn.disabled = true;
+      exportBtn.title = this.processingTasks > 0 
+        ? "処理中のタスクがあるため書き出しできません" 
+        : "タイムラインに項目がありません";
+    } else {
+      exportBtn.disabled = false;
+      exportBtn.title = "動画を書き出します";
+    }
+    
+    // ステータスメッセージを更新
+    const statusMessage = document.getElementById('status-message');
+    if (this.processingTasks > 0) {
+      statusMessage.textContent = `処理中：${this.processingTasks}件のタスクを実行中...`;
+    } else if (!this.ffmpegReady) {
+      statusMessage.textContent = "FFmpegの初期化中...";
+    } else if (this.timelineItems.length === 0) {
+      statusMessage.textContent = "タイムラインに素材を追加してください";
+    } else {
+      statusMessage.textContent = "準備完了";
+    }
+  },
+  
+  // タスクを追加
+  addTask() {
+    this.processingTasks++;
+    this.updateUI();
+  },
+  
+  // タスクを完了
+  completeTask() {
+    if (this.processingTasks > 0) {
+      this.processingTasks--;
+      this.updateUI();
+    }
+  }
+};
+
+// アプリケーションの初期化
+async function initializeApp() {
+  try {
+    // APIが利用可能になるまで待機
+    if (!window.api) {
+      console.error('API is not available. contextBridge may not be properly setup.');
+      document.getElementById('status-message').textContent = "エラー: APIが利用できません。";
+      return;
+    }
+
+    // FFmpegの初期化チェック
+    const ffmpegResult = await window.api.checkFFmpeg();
+    if (ffmpegResult.success) {
+      console.log('FFmpeg initialized:', ffmpegResult.version);
+      document.getElementById('ffmpeg-version').textContent = `FFmpeg: ${ffmpegResult.version.split(' ')[2]}`;
+      AppState.updateState({ ffmpegReady: true });
+    } else {
+      console.error('FFmpeg initialization failed:', ffmpegResult.error);
+      document.getElementById('status-message').textContent = "エラー: FFmpegの初期化に失敗しました";
+      return;
+    }
+    
+    // イベントリスナーの設定
+    setupEventListeners();
+    
+  } catch (error) {
+    console.error('Initialization error:', error);
+    document.getElementById('status-message').textContent = `エラー: ${error.message}`;
+  }
+}
+
+// イベントリスナーの設定
+function setupEventListeners() {
+  // ファイル追加ボタン
+  const addFilesBtn = document.getElementById('add-files-btn');
+  addFilesBtn.addEventListener('click', async () => {
+    const filePaths = await window.api.openFileDialog();
+    if (filePaths && filePaths.length > 0) {
+      MediaList.addMediaFiles(filePaths);
+    }
+  });
+  
+  // フォルダ追加ボタン
+  const addFolderBtn = document.getElementById('add-folder-btn');
+  addFolderBtn.addEventListener('click', async () => {
+    const folderPath = await window.api.openDirectoryDialog();
+    if (folderPath) {
+      // フォルダ内のファイルはメインプロセス側で処理
+      console.log('Selected folder:', folderPath);
+      // フォルダからのファイル読み込み処理を実装予定
+    }
+  });
+  
+  // 書き出しボタン
+  const exportBtn = document.getElementById('export-btn');
+  exportBtn.addEventListener('click', () => {
+    if (AppState.timelineItems.length > 0 && AppState.processingTasks === 0) {
+      ExportModule.showExportDialog();
+    }
+  });
+  
+  // トリム操作ボタン
+  document.getElementById('set-in-point').addEventListener('click', () => {
+    const videoPlayer = document.getElementById('video-player');
+    if (videoPlayer.currentTime > 0) {
+      AppState.updateState({ trimInPoint: videoPlayer.currentTime });
+      WaveformModule.updateTrimMarkers();
+    }
+  });
+  
+  document.getElementById('set-out-point').addEventListener('click', () => {
+    const videoPlayer = document.getElementById('video-player');
+    if (videoPlayer.duration && videoPlayer.currentTime < videoPlayer.duration) {
+      AppState.updateState({ trimOutPoint: videoPlayer.currentTime });
+      WaveformModule.updateTrimMarkers();
+    }
+  });
+  
+  document.getElementById('apply-trim').addEventListener('click', () => {
+    if (AppState.trimInPoint !== null && AppState.trimOutPoint !== null && 
+        AppState.currentItemIndex >= 0 && AppState.currentItemIndex < AppState.mediaItems.length) {
+      TimelineModule.applyTrim(AppState.trimInPoint, AppState.trimOutPoint);
+    }
+  });
+  
+  // 再生コントロールボタン
+  document.getElementById('play-btn').addEventListener('click', () => {
+    const videoPlayer = document.getElementById('video-player');
+    videoPlayer.play();
+  });
+  
+  document.getElementById('pause-btn').addEventListener('click', () => {
+    const videoPlayer = document.getElementById('video-player');
+    videoPlayer.pause();
+  });
+  
+  document.getElementById('stop-btn').addEventListener('click', () => {
+    const videoPlayer = document.getElementById('video-player');
+    videoPlayer.pause();
+    videoPlayer.currentTime = 0;
+  });
+}
+
+// DOMが読み込まれたら初期化
+document.addEventListener('DOMContentLoaded', initializeApp);
+
+// グローバルスコープでAppStateを公開
+window.AppState = AppState; 

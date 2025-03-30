@@ -1,0 +1,133 @@
+<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="UTF-8">
+  <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self';">
+  <title>Super Watarec</title>
+  <link rel="stylesheet" href="css/styles.css">
+</head>
+<body>
+  <div class="app-container">
+    <!-- ヘッダー部分 -->
+    <header class="app-header">
+      <h1>Super Watarec</h1>
+      <div class="task-indicator" id="task-indicator">処理中: <span id="task-count">0</span>件</div>
+      <div class="controls">
+        <button id="add-files-btn">ファイル追加</button>
+        <button id="add-folder-btn">フォルダ追加</button>
+      </div>
+    </header>
+    
+    <!-- メインコンテンツ -->
+    <main class="app-content">
+      <!-- 素材リスト部分（左側） -->
+      <section class="media-list-container" id="area-1">
+        <h2>素材リスト</h2>
+        <div class="media-list" id="media-list">
+          <!-- ここに素材アイテムが動的に追加される -->
+        </div>
+      </section>
+      
+      <!-- 再生・プレビュー部分（中央上部） -->
+      <section class="player-container" id="area-2">
+        <h2>プレビュー</h2>
+        <div class="video-player">
+          <video id="video-player" controls></video>
+        </div>
+      </section>
+      
+      <!-- タイムライン操作部分（中央下部） -->
+      <section class="timeline-container" id="area-3">
+        <h2>タイムライン</h2>
+        <div class="timeline" id="timeline">
+          <!-- タイムライン内容 -->
+        </div>
+        
+        <!-- 波形表示部分 -->
+        <div class="waveform-container">
+          <canvas id="waveform-canvas"></canvas>
+        </div>
+        
+        <!-- タイムラインコントロール -->
+        <div class="timeline-controls">
+          <button id="play-btn">再生</button>
+          <button id="pause-btn">一時停止</button>
+          <button id="stop-btn">停止</button>
+        </div>
+      </section>
+      
+      <!-- トリミング部分（下部） -->
+      <section class="trim-container" id="area-4">
+        <h2>トリミング</h2>
+        <div class="trim-controls">
+          <button id="set-in-point">IN点設定</button>
+          <button id="set-out-point">OUT点設定</button>
+          <button id="apply-trim">トリミング適用</button>
+        </div>
+      </section>
+    </main>
+    
+    <!-- 書き出し設定 -->
+    <div class="export-settings">
+      <h2>書き出し設定</h2>
+      <div class="settings-grid">
+        <div class="setting-group">
+          <label for="resolution">解像度</label>
+          <select id="resolution">
+            <option value="720p">720p</option>
+            <option value="1080p" selected>1080p</option>
+            <option value="2k">2K</option>
+            <option value="4k">4K</option>
+          </select>
+        </div>
+        
+        <div class="setting-group">
+          <label for="fps">フレームレート</label>
+          <select id="fps">
+            <option value="24">24fps</option>
+            <option value="30" selected>30fps</option>
+            <option value="60">60fps</option>
+          </select>
+        </div>
+        
+        <div class="setting-group">
+          <label for="codec">コーデック</label>
+          <select id="codec">
+            <option value="h264" selected>H.264</option>
+            <option value="h265">H.265 (HEVC)</option>
+            <option value="prores_hq">ProRes HQ</option>
+          </select>
+        </div>
+        
+        <div class="setting-group">
+          <button id="export-btn" class="export-btn">書き出し</button>
+        </div>
+      </div>
+    </div>
+    
+    <!-- ステータスバー -->
+    <footer class="status-bar">
+      <div id="status-message">準備完了</div>
+      <div id="ffmpeg-version"></div>
+    </footer>
+  </div>
+  
+  <!-- JavaScriptファイル -->
+  <script>
+    // APIの初期化確認
+    window.addEventListener('DOMContentLoaded', () => {
+      console.log('API available:', !!window.api);
+      if (!window.api) {
+        console.error('API is not available. contextBridge may not be properly setup.');
+        document.getElementById('status-message').textContent = "エラー: APIが利用できません。";
+      }
+    });
+  </script>
+  <script src="js/app.js"></script>
+  <script src="js/mediaList.js"></script>
+  <script src="js/player.js"></script>
+  <script src="js/timeline.js"></script>
+  <script src="js/waveform.js"></script>
+  <script src="js/export.js"></script>
+</body>
+</html> 

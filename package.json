@@ -1,0 +1,32 @@
+{
+  "name": "super-watarec",
+  "version": "1.0.0",
+  "description": "Appleシリコン最適化の動画編集GUIアプリ",
+  "main": "src/main/main.js",
+  "scripts": {
+    "start": "electron .",
+    "dev": "electron . --dev",
+    "build": "electron-builder"
+  },
+  "author": "",
+  "license": "MIT",
+  "devDependencies": {
+    "electron": "^29.0.0",
+    "electron-builder": "^24.9.1"
+  },
+  "dependencies": {
+    "ffmpeg-static": "^5.2.0"
+  },
+  "build": {
+    "appId": "com.super-watarec.app",
+    "mac": {
+      "target": "dmg",
+      "category": "public.app-category.video"
+    },
+    "files": [
+      "src/**/*",
+      "assets/**/*",
+      "node_modules/**/*"
+    ]
+  }
+} 
