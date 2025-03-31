@@ -58,6 +58,7 @@ const App: React.FC = () => {
           videoPlayerRef.current?.changePlaybackRate(newForwardRate);
           break;
         case 'arrowup':
+        case 'p':
           e.preventDefault();
           if (selectedMedia) {
             const currentIndex = mediaFiles.findIndex(m => m.id === selectedMedia.id);
@@ -68,6 +69,7 @@ const App: React.FC = () => {
           }
           break;
         case 'arrowdown':
+        case 'n':
           e.preventDefault();
           if (selectedMedia) {
             const currentIndex = mediaFiles.findIndex(m => m.id === selectedMedia.id);
