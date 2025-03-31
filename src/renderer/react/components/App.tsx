@@ -47,18 +47,74 @@ const App: React.FC = () => {
           break;
         case 'j':
           e.preventDefault();
-          const currentRate = videoPlayerRef.current?.playbackRate || 1;
-          const newRate = currentRate >= 8 ? 2 : currentRate * 2;
-          videoPlayerRef.current?.changePlaybackRate(-newRate);
+          const player = videoPlayerRef.current;
+          if (!player) break;
+          
+          if (!player.isPlaying) {
+            // 停止時は等速で逆再生
+            player.changePlaybackRate(-1);
+            player.togglePlayback();
+          } else {
+            const currentRate = player.playbackRate;
+            if (currentRate > 0) {
+              // 順方向再生中は速度を半分に
+              const newRate = currentRate / 2;
+              if (newRate < 0.25) {
+                // 一定以下になったら逆方向に切り替え
+                player.changePlaybackRate(-1);
+              } else {
+                player.changePlaybackRate(newRate);
+              }
+            } else {
+              // 逆方向再生中は速度を2倍に
+              const newRate = Math.max(-8, currentRate * 2);
+              player.changePlaybackRate(newRate);
+            }
+          }
           break;
         case 'l':
           e.preventDefault();
-          const currentForwardRate = videoPlayerRef.current?.playbackRate || 1;
-          const newForwardRate = currentForwardRate >= 8 ? 2 : currentForwardRate * 2;
-          videoPlayerRef.current?.changePlaybackRate(newForwardRate);
+          const videoPlayer = videoPlayerRef.current;
+          if (!videoPlayer) break;
+          
+          if (!videoPlayer.isPlaying) {
+            // 停止時は等速で順再生
+            videoPlayer.changePlaybackRate(1);
+            videoPlayer.togglePlayback();
+          } else {
+            const currentRate = videoPlayer.playbackRate;
+            if (currentRate < 0) {
+              // 逆方向再生中は速度を半分に
+              const newRate = currentRate / 2;
+              if (newRate > -0.25) {
+                // 一定以上になったら順方向に切り替え
+                videoPlayer.changePlaybackRate(1);
+              } else {
+                videoPlayer.changePlaybackRate(newRate);
+              }
+            } else {
+              // 順方向再生中は速度を2倍に
+              const newRate = Math.min(8, currentRate * 2);
+              videoPlayer.changePlaybackRate(newRate);
+            }
+          }
+          break;
+        case 'e':
+          // Command+E または Ctrl+E で書き出し設定を開く
+          if (e.metaKey || e.ctrlKey) {
+            e.preventDefault();
+            toggleExportSettings();
+          }
+          break;
+        case 'a':
+          // Command+A または Ctrl+A で素材を追加
+          if (e.metaKey || e.ctrlKey) {
+            e.preventDefault();
+            handleAddFiles();
+          }
           break;
         case 'arrowup':
-        case 'p':
+        case 'p': // Pキーを上矢印と同じ機能にマッピング
           e.preventDefault();
           if (selectedMedia) {
             const currentIndex = mediaFiles.findIndex(m => m.id === selectedMedia.id);
@@ -69,7 +125,7 @@ const App: React.FC = () => {
           }
           break;
         case 'arrowdown':
-        case 'n':
+        case 'n': // Nキーを下矢印と同じ機能にマッピング
           e.preventDefault();
           if (selectedMedia) {
             const currentIndex = mediaFiles.findIndex(m => m.id === selectedMedia.id);
