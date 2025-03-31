@@ -9,6 +9,7 @@ interface TimelinePaneProps {
   onDropFiles?: (filePaths: string[]) => Promise<void>; // ドロップしたファイルを直接追加する関数
   onReorderMedia?: (result: { source: number; destination: number }) => void; // 素材の並び替え関数
   onDeleteMedias?: (mediaIds: string[]) => void; // 素材削除関数
+  onUpdateMedia?: (mediaId: string, updates: any) => void; // 素材更新関数
 }
 
 // Electronでのファイル型拡張（pathプロパティを持つ）
@@ -24,11 +25,14 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
   onAddFiles,
   onDropFiles,
   onReorderMedia,
-  onDeleteMedias
+  onDeleteMedias,
+  onUpdateMedia
 }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [selectedMedias, setSelectedMedias] = useState<string[]>([]);
   const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
+  const [measuringLoudness, setMeasuringLoudness] = useState<Record<string, boolean>>({});
+  const [loudnessErrors, setLoudnessErrors] = useState<Record<string, boolean>>({});
   const timelinePaneRef = useRef<HTMLDivElement>(null);
 
   // 単一メディア選択時に選択リストも更新
@@ -55,6 +59,60 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
         if (window.api && window.api.off) {
           window.api.off('thumbnail-generated', handleThumbnailGenerated);
         }
+      };
+    }
+  }, []);
+
+  // ラウドネス測定結果のリスナー設定
+  useEffect(() => {
+    if (window.api && window.api.on) {
+      const handleLoudnessMeasured = (data: { id: string; loudnessInfo: any }) => {
+        if (onUpdateMedia && data.id && data.loudnessInfo) {
+          onUpdateMedia(data.id, { 
+            loudnessInfo: data.loudnessInfo,
+            // デフォルトで有効にする
+            loudnessNormalization: true
+          });
+          // 測定中フラグを解除
+          setMeasuringLoudness(prev => ({
+            ...prev,
+            [data.id]: false
+          }));
+        }
+      };
+
+      window.api.on('loudness-measured', handleLoudnessMeasured);
+
+      return () => {
+        if (window.api && window.api.off) {
+          window.api.off('loudness-measured', handleLoudnessMeasured);
+        }
+      };
+    }
+  }, [onUpdateMedia]);
+
+  // ラウドネスエラーのリスナー設定
+  useEffect(() => {
+    if (window.api && window.api.on) {
+      const handleLoudnessError = (data: { id: string }) => {
+        if (data && data.id) {
+          setLoudnessErrors(prev => ({
+            ...prev,
+            [data.id]: true
+          }));
+          
+          // 測定中フラグも解除
+          setMeasuringLoudness(prev => ({
+            ...prev,
+            [data.id]: false
+          }));
+        }
+      };
+
+      const removeListener = window.api.on('loudness-error', handleLoudnessError);
+
+      return () => {
+        removeListener();
       };
     }
   }, []);
@@ -114,6 +172,49 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
       }
     };
   }, [onDropFiles]);
+
+  // ラウドネス測定関数
+  const handleMeasureLoudness = async (media: any, e: React.MouseEvent) => {
+    e.stopPropagation(); // イベントの伝播を防止
+    if (!window.api) return;
+
+    try {
+      setMeasuringLoudness(prev => ({
+        ...prev,
+        [media.id]: true
+      }));
+
+      const loudnessInfo = await window.api.measureLoudness(media.path);
+      if (onUpdateMedia && !loudnessInfo.error) {
+        onUpdateMedia(media.id, { 
+          loudnessInfo,
+          // デフォルトで有効にする
+          loudnessNormalization: true
+        });
+      }
+    } catch (error) {
+      console.error('ラウドネス測定エラー:', error);
+      setLoudnessErrors(prev => ({
+        ...prev,
+        [media.id]: true
+      }));
+    } finally {
+      setMeasuringLoudness(prev => ({
+        ...prev,
+        [media.id]: false
+      }));
+    }
+  };
+
+  // ラウドネス正規化切り替え関数
+  const handleToggleLoudnessNormalization = (media: any, e: React.ChangeEvent<HTMLInputElement>) => {
+    e.stopPropagation(); // イベントの伝播を防止
+    if (onUpdateMedia) {
+      onUpdateMedia(media.id, { 
+        loudnessNormalization: e.target.checked 
+      });
+    }
+  };
 
   // react-beautiful-dndのドラッグ終了ハンドラ
   const handleDragEnd = (result: DropResult) => {
@@ -193,6 +294,12 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
     ].filter(Boolean).join(':');
   };
 
+  // ラウドネス値のフォーマット
+  const formatLoudness = (lufs: number): string => {
+    if (isNaN(lufs)) return 'N/A';
+    return `${lufs.toFixed(1)} LUFS`;
+  };
+
   return (
     <div 
       className={`panel ${isDragging ? 'dragover' : ''}`}
@@ -200,101 +307,124 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
     >
       <div className="panel-header">
         <h2>タイムライン</h2>
-        <div className="timeline-controls">
-          <span className="item-count">{mediaFiles.length}アイテム</span>
-          {mediaFiles.length > 0 && (
+        <div className="panel-controls">
+          {selectedMedias.length > 0 && (
             <>
-              <button 
-                className="compact-btn" 
-                title="全選択"
-                onClick={handleSelectAll}
-              >
-                全選択
+              <button className="panel-button" onClick={handleDeselectAll}>
+                選択解除
               </button>
-              {selectedMedias.length > 0 && (
-                <>
-                  <button 
-                    className="compact-btn" 
-                    title="選択解除"
-                    onClick={handleDeselectAll}
-                  >
-                    解除
-                  </button>
-                  <button 
-                    className="compact-btn delete-btn" 
-                    title="選択した素材を削除"
-                    onClick={handleDeleteSelected}
-                  >
-                    削除
-                  </button>
-                </>
-              )}
+              <button className="panel-button danger" onClick={handleDeleteSelected}>
+                削除 ({selectedMedias.length})
+              </button>
             </>
+          )}
+          {selectedMedias.length === 0 && mediaFiles.length > 0 && (
+            <button className="panel-button" onClick={handleSelectAll}>
+              全選択
+            </button>
           )}
         </div>
       </div>
-      <div className="panel-content">
+      
+      <div className="panel-content timeline-content">
         {mediaFiles.length === 0 ? (
-          <div className="empty-list">
-            素材が追加されていません。「素材を追加」ボタンをクリックするか、ファイルをドラッグ&ドロップしてください。
+          <div className="empty-state">
+            <p>タイムラインにファイルがありません</p>
+            <p className="drag-hint">ファイルをドラッグ＆ドロップ</p>
           </div>
         ) : (
           <DragDropContext onDragEnd={handleDragEnd}>
-            <Droppable droppableId="timeline-media-list">
+            <Droppable droppableId="mediaList">
               {(provided) => (
-                <div 
-                  className="media-list"
+                <div
                   {...provided.droppableProps}
                   ref={provided.innerRef}
+                  className="media-list"
                 >
-                  {mediaFiles.map((media, index) => (
-                    <Draggable 
-                      key={media.id} 
-                      draggableId={media.id} 
-                      index={index}
-                    >
-                      {(provided, snapshot) => (
-                        <div 
-                          ref={provided.innerRef}
-                          {...provided.draggableProps}
-                          {...provided.dragHandleProps}
-                          className={`media-item ${selectedMedia?.id === media.id ? 'selected' : ''} ${selectedMedias.includes(media.id) ? 'multi-selected' : ''} ${snapshot.isDragging ? 'dragging' : ''}`}
-                          onClick={(e) => handleMediaClick(media, e)}
-                        >
-                          <div className="media-thumbnail">
-                            {(media.thumbnail || thumbnails[media.id]) ? (
-                              <img 
-                                src={thumbnails[media.id] || media.thumbnail} 
-                                alt={media.name}
-                                onError={(e) => {
-                                  // 画像読み込みエラー時の処理
-                                  const target = e.target as HTMLImageElement;
-                                  // エラー発生時にはプレースホルダーを表示
-                                  target.style.display = 'none';
-                                  // プレースホルダーを表示
-                                  const placeholder = document.createElement('div');
-                                  placeholder.className = 'placeholder-thumbnail';
-                                  placeholder.textContent = media.type.startsWith('video') ? '🎬' : '🔊';
-                                  target.parentNode?.appendChild(placeholder);
-                                }}
-                              />
-                            ) : (
-                              <div className="placeholder-thumbnail">
-                                {media.type.startsWith('video') ? '🎬' : '🔊'}
-                              </div>
-                            )}
-                          </div>
-                          <div className="media-details">
-                            <div className="media-name">{media.name}</div>
+                  {mediaFiles.map((media, index) => {
+                    const isSelected = selectedMedias.includes(media.id);
+                    const isMeasuringLoudness = measuringLoudness[media.id] || false;
+                    
+                    return (
+                      <Draggable
+                        key={media.id}
+                        draggableId={media.id}
+                        index={index}
+                      >
+                        {(provided, snapshot) => (
+                          <div
+                            ref={provided.innerRef}
+                            {...provided.draggableProps}
+                            {...provided.dragHandleProps}
+                            className={`media-item ${selectedMedia?.id === media.id ? 'active' : ''} ${isSelected ? 'selected' : ''} ${snapshot.isDragging ? 'dragging' : ''}`}
+                            onClick={(e) => handleMediaClick(media, e)}
+                          >
+                            <div className="media-thumbnail">
+                              {thumbnails[media.id] ? (
+                                <img src={thumbnails[media.id]} alt={media.name} />
+                              ) : (
+                                <div className="thumbnail-placeholder">
+                                  {media.type === 'video' ? '🎬' : '🖼️'}
+                                </div>
+                              )}
+                            </div>
                             <div className="media-info">
-                              {media.duration && <span>{formatDuration(media.duration)}</span>}
-                              <span>{formatFileSize(media.size)}</span>
+                              <div className="media-name">{media.name}</div>
+                              <div className="media-details">
+                                <span className="media-type">{media.type === 'video' ? '動画' : '画像'}</span>
+                                {media.duration && <span className="media-duration">{formatDuration(media.duration)}</span>}
+                                <span className="media-size">{formatFileSize(media.size)}</span>
+                              </div>
+                              
+                              {/* ラウドネス情報の表示 */}
+                              <div className="media-loudness">
+                                {media.loudnessInfo ? (
+                                  <div className="loudness-info">
+                                    <div className="loudness-value">
+                                      現在: {formatLoudness(media.loudnessInfo.inputIntegratedLoudness)}
+                                      {media.loudnessInfo.lufsGain !== undefined && (
+                                        <span className={media.loudnessInfo.lufsGain > 0 ? 'gain-positive' : 'gain-negative'}>
+                                          {media.loudnessInfo.lufsGain > 0 ? '+' : ''}{media.loudnessInfo.lufsGain.toFixed(1)}dB
+                                        </span>
+                                      )}
+                                    </div>
+                                    <div className="loudness-controls">
+                                      <label className="toggle-label">
+                                        <input
+                                          type="checkbox"
+                                          checked={media.loudnessNormalization !== false}
+                                          onChange={(e) => handleToggleLoudnessNormalization(media, e)}
+                                          onClick={(e) => e.stopPropagation()}
+                                        />
+                                        <span>-14 LUFS適用</span>
+                                      </label>
+                                    </div>
+                                  </div>
+                                ) : (
+                                  <div className="loudness-status">
+                                    {media.isMeasuringLoudness ? (
+                                      <div className="measuring-indicator">
+                                        <span className="spinner"></span>
+                                        <span>ラウドネス測定中...</span>
+                                      </div>
+                                    ) : loudnessErrors[media.id] || media.loudnessError ? (
+                                      <div className="error-indicator">
+                                        <span>測定エラー</span>
+                                      </div>
+                                    ) : (
+                                      <div className="waiting-indicator">
+                                        <span>ラウドネス情報を取得中...</span>
+                                      </div>
+                                    )}
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           </div>
-                        </div>
-                      )}
-                    </Draggable>
-                  ))}
+                        )}
+                      </Draggable>
+                    );
+                  })}
                   {provided.placeholder}
                 </div>
               )}
@@ -306,4 +436,4 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
   );
 };
 
-export default TimelinePane; 
+export default TimelinePane;

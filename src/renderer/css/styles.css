@@ -633,3 +633,74 @@ select {
 .delete-btn:hover {
   background-color: #ff0048;
 } 
+
+/* ラウドネス測定表示 */
+.loudness-status {
+  margin-top: 5px;
+  font-size: 0.85em;
+}
+
+.measuring-indicator {
+  display: flex;
+  align-items: center;
+  color: #0078d7;
+}
+
+.measuring-indicator .spinner {
+  display: inline-block;
+  width: 12px;
+  height: 12px;
+  border: 2px solid rgba(0, 120, 215, 0.3);
+  border-radius: 50%;
+  border-top-color: #0078d7;
+  animation: spin 1s ease-in-out infinite;
+  margin-right: 5px;
+}
+
+@keyframes spin {
+  to { transform: rotate(360deg); }
+}
+
+.error-indicator {
+  color: #d70040;
+  font-weight: 500;
+}
+
+.waiting-indicator {
+  color: #666;
+  font-style: italic;
+}
+
+/* ラウドネス情報の表示スタイル */
+.loudness-info {
+  margin-top: 5px;
+  font-size: 0.85em;
+}
+
+.loudness-value {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 3px;
+}
+
+.gain-positive {
+  color: #4CAF50;
+  margin-left: 5px;
+}
+
+.gain-negative {
+  color: #d70040;
+  margin-left: 5px;
+}
+
+.toggle-label {
+  display: flex;
+  align-items: center;
+  font-size: 0.9em;
+  user-select: none;
+}
+
+.toggle-label input {
+  margin-right: 5px;
+}

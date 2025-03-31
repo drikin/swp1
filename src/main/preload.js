@@ -22,14 +22,17 @@ try {
     'check-ffmpeg',
     'get-media-info',
     'generate-waveform',
-    'export-combined-video'
+    'export-combined-video',
+    'measure-loudness'
   ];
   
   const validEventChannels = [
     'task-status',
     'progress-update',
     'export-progress', 
-    'thumbnail-generated'
+    'thumbnail-generated',
+    'loudness-measured',
+    'loudness-error'
   ];
   
   // 統合されたAPIオブジェクトを作成
@@ -79,6 +82,7 @@ try {
     getMediaInfo: (filePath) => ipcRenderer.invoke('get-media-info', filePath),
     generateWaveform: (filePath, outputPath) => ipcRenderer.invoke('generate-waveform', filePath, outputPath),
     exportCombinedVideo: (options) => ipcRenderer.invoke('export-combined-video', options),
+    measureLoudness: (filePath) => ipcRenderer.invoke('measure-loudness', filePath),
     
     // ファイル操作関連
     openFileDialog: (paths) => ipcRenderer.invoke('open-file-dialog', paths),

@@ -188,6 +188,13 @@ const App: React.FC = () => {
           if (files && files.length > 0) {
             setMediaFiles(prev => [...prev, ...files]);
             setStatus(`${files.length}件のファイルを追加しました`);
+            
+            // 追加されたファイルについて自動的にラウドネス測定を開始
+            files.forEach(file => {
+              if (file.type === 'video' || file.type === 'audio') {
+                startLoudnessMeasurement(file);
+              }
+            });
           }
         } catch (error) {
           console.error('ファイル追加エラー:', error);
@@ -221,6 +228,13 @@ const App: React.FC = () => {
         if (files && files.length > 0) {
           setMediaFiles(prev => [...prev, ...files]);
           setStatus(`${files.length}件のファイルを追加しました`);
+          
+          // 追加されたファイルについて自動的にラウドネス測定を開始
+          files.forEach(file => {
+            if (file.type === 'video' || file.type === 'audio') {
+              startLoudnessMeasurement(file);
+            }
+          });
         }
       } catch (error) {
         console.error('ファイル選択エラー:', error);
@@ -228,6 +242,56 @@ const App: React.FC = () => {
       }
     }
   };
+  
+  // ラウドネス測定を開始する関数
+  const startLoudnessMeasurement = async (media: any) => {
+    if (!window.api) return;
+    
+    try {
+      // 測定中フラグを設定
+      setMediaFiles(prev => prev.map(m => 
+        m.id === media.id ? { ...m, isMeasuringLoudness: true } : m
+      ));
+      
+      // バックグラウンドでラウドネス測定を実行（IDをパスと一緒に渡す）
+      const loudnessInfo = await window.api.measureLoudness(`${media.id}|${media.path}`);
+      
+      // 測定結果を反映
+      setMediaFiles(prev => prev.map(m => 
+        m.id === media.id ? { 
+          ...m, 
+          loudnessInfo, 
+          loudnessNormalization: true, 
+          isMeasuringLoudness: false 
+        } : m
+      ));
+      
+      setStatus(`${media.name}のラウドネス測定が完了しました`);
+    } catch (error) {
+      console.error('ラウドネス測定エラー:', error);
+      // エラー状態を設定
+      setMediaFiles(prev => prev.map(m => 
+        m.id === media.id ? { ...m, isMeasuringLoudness: false, loudnessError: true } : m
+      ));
+      setStatus(`${media.name}のラウドネス測定に失敗しました`);
+    }
+  };
+
+  // サムネイル生成イベントリスナー
+  useEffect(() => {
+    if (window.api) {
+      const removeListener = window.api.on('thumbnail-generated', (data: { id: string, thumbnail: string }) => {
+        const { id, thumbnail } = data;
+        setMediaFiles(prev => prev.map(media => 
+          media.id === id ? { ...media, thumbnail } : media
+        ));
+      });
+      
+      return () => {
+        removeListener();
+      };
+    }
+  }, []);
 
   // ドロップしたファイルを直接追加する処理
   const handleDropFiles = async (filePaths: string[]) => {
@@ -238,6 +302,13 @@ const App: React.FC = () => {
         if (files && files.length > 0) {
           setMediaFiles(prev => [...prev, ...files]);
           setStatus(`${files.length}件のファイルを追加しました`);
+          
+          // 追加されたファイルについて自動的にラウドネス測定を開始
+          files.forEach(file => {
+            if (file.type === 'video' || file.type === 'audio') {
+              startLoudnessMeasurement(file);
+            }
+          });
         }
       } catch (error) {
         console.error('ファイル追加エラー:', error);
@@ -282,6 +353,22 @@ const App: React.FC = () => {
     setStatus(`${media.name}を選択しました`);
   };
 
+  // クリップのメディア情報を更新
+  const handleUpdateMedia = (mediaId: string, updates: any) => {
+    setMediaFiles(prev => 
+      prev.map(media => 
+        media.id === mediaId 
+          ? { ...media, ...updates } 
+          : media
+      )
+    );
+    
+    // 選択中のメディアの場合も更新
+    if (selectedMedia && selectedMedia.id === mediaId) {
+      setSelectedMedia((prev: any) => ({ ...prev, ...updates }));
+    }
+  };
+
   // エクスポート設定の表示/非表示を切り替え
   const toggleExportSettings = () => {
     setShowExportSettings(!showExportSettings);
@@ -319,6 +406,7 @@ const App: React.FC = () => {
                 onDropFiles={handleDropFiles}
                 onReorderMedia={handleReorderMedia}
                 onDeleteMedias={handleDeleteMedias}
+                onUpdateMedia={handleUpdateMedia}
               />
             </Panel>
             
