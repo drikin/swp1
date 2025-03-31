@@ -104,7 +104,7 @@ async function generateThumbnail(filePath, fileId) {
         '-ss', '00:00:01',        // 1秒目のフレームを取得
         '-vframes', '1',          // 1フレームのみ
         '-vf', 'scale=120:-1',    // 幅120pxに変換
-        '-f', 'image2',           // 画像フォーマット指定
+        '-y',                     // 既存ファイルを上書き
         thumbnailPath
       ]);
     } else if (['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp'].includes(ext)) {
@@ -112,7 +112,7 @@ async function generateThumbnail(filePath, fileId) {
       await runFFmpegCommand([
         '-i', filePath,
         '-vf', 'scale=120:-1',    // 幅120pxに変換
-        '-f', 'image2',           // 画像フォーマット指定
+        '-y',                     // 既存ファイルを上書き
         thumbnailPath
       ]);
     } else {
@@ -123,7 +123,15 @@ async function generateThumbnail(filePath, fileId) {
     if (fs.existsSync(thumbnailPath)) {
       const imageBuffer = fs.readFileSync(thumbnailPath);
       if (imageBuffer.length > 0) {
-        return `data:image/jpeg;base64,${imageBuffer.toString('base64')}`;
+        const base64Data = imageBuffer.toString('base64');
+        // サムネイル生成に成功したことをレンダラープロセスに通知
+        if (mainWindow) {
+          mainWindow.webContents.send('thumbnail-generated', {
+            id: fileId,
+            thumbnail: `data:image/jpeg;base64,${base64Data}`
+          });
+        }
+        return `data:image/jpeg;base64,${base64Data}`;
       }
     }
     
@@ -225,15 +233,23 @@ ipcMain.handle('open-file-dialog', async (event, paths) => {
   return allFiles;
 });
 
-// フォルダ選択ダイアログを開く
+// フォルダー選択ダイアログを開く
 ipcMain.handle('open-directory-dialog', async () => {
-  const { canceled, filePaths } = await dialog.showOpenDialog(mainWindow, {
-    properties: ['openDirectory']
-  });
-  if (canceled) {
-    return null;
+  try {
+    const result = await dialog.showOpenDialog(mainWindow, {
+      properties: ['openDirectory'],
+      title: '保存先フォルダーを選択'
+    });
+    
+    if (result.canceled) {
+      return null;
+    }
+    
+    return result.filePaths[0];
+  } catch (error) {
+    console.error('フォルダー選択エラー:', error);
+    throw error;
   }
-  return filePaths[0];
 });
 
 // フォルダーを再帰的に探索してファイルを取得する関数
@@ -379,6 +395,80 @@ function runFFmpegCommand(args) {
   });
 }
 
+// FFprobeコマンドを実行する関数（メタデータ取得用）
+function runFFprobeCommand(args) {
+  return new Promise((resolve, reject) => {
+    console.log('FFprobe実行:', args.join(' '));
+    const process = spawn('ffprobe', args, {
+      maxBuffer: 10 * 1024 * 1024  // 10MBのバッファ
+    });
+    
+    let stdout = '';
+    let stderr = '';
+    
+    process.stdout.on('data', (data) => {
+      const chunk = data.toString();
+      stdout += chunk;
+      if (chunk.trim()) {  // 空白行を避ける
+        console.log('FFprobe stdout:', chunk.trim());
+      }
+    });
+    
+    // ログ出力量の制限（非常に長いログを避ける）
+    let logLines = 0;
+    const maxLogLines = 100;
+    
+    process.stderr.on('data', (data) => {
+      const chunk = data.toString();
+      stderr += chunk;
+      
+      // ログの行数を制限
+      if (logLines < maxLogLines) {
+        const lines = chunk.split('\n').filter(l => l.trim());
+        for (const line of lines) {
+          if (logLines < maxLogLines) {
+            // 進捗情報のみログ出力を間引く（フレーム情報は頻度が高すぎる）
+            if (!line.startsWith('frame=')) {
+              console.log('FFprobe stderr:', line);
+            } else if (logLines % 10 === 0) {  // 10行に1回だけ進捗情報を出力
+              console.log('FFprobe進捗:', line);
+            }
+            logLines++;
+          } else {
+            // 最大行数に達したら要約メッセージを表示
+            if (logLines === maxLogLines) {
+              console.log('FFprobe: ログが多すぎるため以降は省略します...');
+              logLines++;
+            }
+            break;
+          }
+        }
+      }
+    });
+    
+    process.on('close', (code) => {
+      if (code === 0) {
+        console.log('FFprobe処理成功');
+        resolve({ stdout, stderr });
+      } else {
+        console.error(`FFprobe処理失敗 (コード ${code}):`);
+        // エラーの概要のみを出力（長すぎるエラーを避ける）
+        const errorSummary = stderr.split('\n')
+          .filter(line => line.includes('Error') || line.includes('failed') || line.includes('Invalid'))
+          .slice(0, 10)
+          .join('\n');
+        console.error('エラー概要:', errorSummary || 'エラー詳細が見つかりません');
+        reject(new Error(`FFprobe process exited with code ${code}: ${stderr}`));
+      }
+    });
+    
+    process.on('error', (err) => {
+      console.error('FFprobeプロセスエラー:', err);
+      reject(err);
+    });
+  });
+}
+
 // VideoToolboxサポートをチェックする共通関数
 async function checkVideoToolboxSupport() {
   try {
@@ -430,23 +520,55 @@ ipcMain.handle('check-ffmpeg', async () => {
 async function getMediaInfo(filePath) {
   try {
     const args = [
-      '-i', filePath,
-      '-hide_banner',
       '-v', 'error',
-      '-show_format',
-      '-show_streams',
-      '-print_format', 'json'
+      '-show_entries', 'format=duration,bit_rate,size:stream=codec_type,codec_name,width,height,sample_rate,channels',
+      '-of', 'json',
+      filePath
     ];
     
-    const { stdout } = await runFFmpegCommand(args);
-    const info = JSON.parse(stdout);
+    const { stdout } = await runFFprobeCommand(args);
     
-    // 必要な情報を抽出
-    const result = {
-      format: info.format,
-      streams: info.streams,
-      duration: parseFloat(info.format.duration || 0)
+    // JSON解析
+    const info = JSON.parse(stdout);
+    let result = {
+      duration: 0,
+      video: false,
+      audio: false,
+      width: 0,
+      height: 0,
+      format: ''
     };
+    
+    // フォーマット情報を抽出
+    if (info.format) {
+      if (info.format.duration) {
+        result.duration = parseFloat(info.format.duration);
+      }
+      if (info.format.format_name) {
+        result.format = info.format.format_name;
+      }
+    }
+    
+    // ストリーム情報が配列なら処理
+    if (info.streams && Array.isArray(info.streams)) {
+      for (const stream of info.streams) {
+        // ビデオストリーム
+        if (stream.codec_type === 'video') {
+          result.video = true;
+          result.width = parseInt(stream.width || 0);
+          result.height = parseInt(stream.height || 0);
+          result.videoCodec = stream.codec_name;
+        }
+        
+        // オーディオストリーム
+        if (stream.codec_type === 'audio') {
+          result.audio = true;
+          result.audioCodec = stream.codec_name;
+          result.channels = parseInt(stream.channels || 0);
+          result.sampleRate = parseInt(stream.sample_rate || 0);
+        }
+      }
+    }
     
     return result;
   } catch (error) {
@@ -455,9 +577,194 @@ async function getMediaInfo(filePath) {
   }
 }
 
-// メディア情報取得のIPC通信を設定
+// IPC通信でメディア情報取得を提供
 ipcMain.handle('get-media-info', async (event, filePath) => {
   return await getMediaInfo(filePath);
+});
+
+// LUFSを測定キューとキャッシュ
+const loudnessQueue = [];
+const loudnessCache = new Map();
+let isProcessingLoudness = false;
+
+// キューを順次処理するプロセッサー
+async function processLoudnessQueue() {
+  if (isProcessingLoudness || loudnessQueue.length === 0) return;
+  
+  isProcessingLoudness = true;
+  
+  try {
+    const item = loudnessQueue.shift();
+    const { filePath, fileId, originalPath, resolve, reject } = item;
+    
+    // キャッシュに存在するかチェック
+    const cacheKey = originalPath;
+    if (loudnessCache.has(cacheKey)) {
+      console.log('ラウドネスキャッシュからデータを使用:', cacheKey);
+      const cachedData = loudnessCache.get(cacheKey);
+      
+      // イベント通知（メイン処理とは別に行う）
+      if (mainWindow) {
+        mainWindow.webContents.send('loudness-measured', {
+          id: fileId,
+          loudnessInfo: cachedData
+        });
+      }
+      
+      resolve(cachedData);
+    } else {
+      // 実際に測定を実行
+      try {
+        const result = await measureLoudnessInternal(filePath);
+        
+        // キャッシュに保存
+        loudnessCache.set(cacheKey, result);
+        
+        // イベント通知（メイン処理とは別に行う）
+        if (mainWindow) {
+          mainWindow.webContents.send('loudness-measured', {
+            id: fileId,
+            loudnessInfo: result
+          });
+        }
+        
+        resolve(result);
+      } catch (error) {
+        console.error('ラウドネス測定エラー:', error);
+        
+        // エラーイベントを発行
+        if (mainWindow) {
+          mainWindow.webContents.send('loudness-error', { id: fileId });
+        }
+        
+        reject(error);
+      }
+    }
+  } catch (error) {
+    console.error('ラウドネスキュー処理エラー:', error);
+  } finally {
+    isProcessingLoudness = false;
+    
+    // キューに残りがあれば続けて処理
+    if (loudnessQueue.length > 0) {
+      processLoudnessQueue();
+    }
+  }
+}
+
+// LUFS測定関数 (ITU-R BS.1770-3準拠) - 内部実装
+async function measureLoudnessInternal(filePath) {
+  try {
+    console.log('LUFSの測定開始:', filePath);
+    
+    // メディア情報を取得して動画の長さを確認
+    const mediaInfo = await getMediaInfo(filePath);
+    const duration = mediaInfo.duration || 0;
+    
+    // 短い動画（10秒未満）の場合は全体を測定、それ以外は部分測定
+    const isBriefClip = duration < 10;
+    
+    // サンプリング時間の設定（最大30秒、または動画の長さの15%のいずれか短い方）
+    const sampleDuration = isBriefClip ? duration : Math.min(30, duration * 0.15);
+    
+    // 動画の中央部分から測定するためのオフセット計算（中央の少し手前から）
+    const startOffset = isBriefClip ? 0 : Math.max(0, (duration / 2) - (sampleDuration / 2));
+    
+    // 解析コマンドを構築 - ffmpeg 7.1.1に最適化
+    const args = [
+      '-hide_banner',
+      '-nostats'
+    ];
+    
+    // 短くない動画の場合のみシーク指定を追加
+    if (!isBriefClip) {
+      args.push('-ss', `${startOffset}`);
+      args.push('-t', `${sampleDuration}`);
+    }
+    
+    // 入力ファイルと解析フィルタを追加
+    args.push(
+      '-i', filePath,
+      '-filter:a', 'loudnorm=I=-16:TP=-1.5:LRA=11:print_format=json',
+      '-f', 'null',
+      '-'
+    );
+    
+    console.log('ラウドネス測定コマンド:', args.join(' '));
+    const { stderr } = await runFFmpegCommand(args);
+    
+    // 正規表現でJSON部分を抽出
+    const jsonMatch = stderr.match(/\{.*\}/s);
+    if (!jsonMatch) {
+      console.error('JSONデータが見つかりません。FFmpeg出力:', stderr);
+      throw new Error('ラウドネス解析の出力からJSONデータが取得できませんでした');
+    }
+    
+    const loudnessData = JSON.parse(jsonMatch[0]);
+    return {
+      // 入力時のラウドネス値
+      inputIntegratedLoudness: parseFloat(loudnessData.input_i),
+      inputTruePeak: parseFloat(loudnessData.input_tp),
+      inputLRA: parseFloat(loudnessData.input_lra),
+      inputThreshold: parseFloat(loudnessData.input_thresh),
+      
+      // ターゲット値
+      targetIntegratedLoudness: parseFloat(loudnessData.target_i),
+      targetTruePeak: parseFloat(loudnessData.target_tp),
+      targetLRA: parseFloat(loudnessData.target_lra),
+      targetThreshold: parseFloat(loudnessData.target_thresh),
+      
+      // -14 LUFSにするためのゲイン値
+      lufsGain: -14 - parseFloat(loudnessData.input_i)
+    };
+  } catch (error) {
+    console.error('LUFS測定エラー:', error);
+    throw error;
+  }
+}
+
+// 外部公開用のLUFS測定関数（キューベースのラッパー）
+async function measureLoudness(filePathWithId) {
+  return new Promise((resolve, reject) => {
+    // ファイルIDとパスを分離
+    const [fileId, filePath] = filePathWithId.includes('|') 
+      ? filePathWithId.split('|')
+      : [null, filePathWithId];
+    
+    if (!filePath) {
+      return reject(new Error('無効なファイルパス'));
+    }
+
+    // キューに追加
+    loudnessQueue.push({
+      filePath,
+      fileId,
+      originalPath: filePath,
+      resolve,
+      reject
+    });
+    
+    // 処理開始
+    processLoudnessQueue();
+  });
+}
+
+// IPC通信でLUFSの測定を提供
+ipcMain.handle('measure-loudness', async (event, filePath) => {
+  try {
+    return await measureLoudness(filePath);
+  } catch (error) {
+    console.error('ラウドネス測定エラー:', error);
+    
+    // エラーイベントを発行
+    // ファイルIDを含む引数形式を想定
+    const fileId = filePath.includes('|') ? filePath.split('|')[0] : null;
+    if (mainWindow && fileId) {
+      mainWindow.webContents.send('loudness-error', { id: fileId });
+    }
+    
+    return { error: error.message };
+  }
 });
 
 // 波形データを生成
@@ -519,155 +826,131 @@ ipcMain.handle('generate-waveform', async (event, filePath, outputPath) => {
   }
 });
 
-// 動画を結合して出力する関数
+// 進捗更新関数
+function updateProgress(current, total, stage) {
+  const percentage = Math.round((current / total) * 100);
+  if (mainWindow) {
+    mainWindow.webContents.send('export-progress', {
+      current,
+      total,
+      percentage,
+      stage
+    });
+  }
+}
+
+// 結合動画を書き出す
 ipcMain.handle('export-combined-video', async (event, { mediaFiles, outputPath, settings }) => {
-  try {
-    console.log('動画結合処理を開始:', { mediaFiles, outputPath, settings });
-    
-    // ハードウェアエンコードのサポート確認
-    const hwaccelSupport = await checkVideoToolboxSupport();
-    console.log('エクスポート - VideoToolbox対応状況:', hwaccelSupport);
-    
-    // 一時ディレクトリを作成
-    const tempDir = path.join(app.getPath('temp'), `export_temp_${Date.now()}`);
+  const tempDir = path.join(app.getPath('temp'), 'swp1-export');
+  const tempFiles = [];
+  const concatFilePath = path.join(tempDir, 'concat.txt');
+  
+  // 一時ディレクトリを作成
+  if (!fs.existsSync(tempDir)) {
     fs.mkdirSync(tempDir, { recursive: true });
-    console.log('一時ディレクトリを作成:', tempDir);
+  } else {
+    // 古いファイルをクリア
+    const files = fs.readdirSync(tempDir);
+    for (const file of files) {
+      fs.unlinkSync(path.join(tempDir, file));
+    }
+  }
+  
+  try {
+    // 解像度をピクセル値に変換
+    let resolution;
+    switch (settings.resolution) {
+      case '720p':
+        resolution = '1280x720';
+        break;
+      case '1080p':
+        resolution = '1920x1080';
+        break;
+      case '2k':
+        resolution = '2560x1440';
+        break;
+      case '4k':
+        resolution = '3840x2160';
+        break;
+      default:
+        resolution = '1920x1080';
+    }
     
-    // 進捗更新関数
-    const updateProgress = (current, total, stage) => {
-      if (event && event.sender) {
-        event.sender.send('export-progress', {
-          current,
-          total,
-          percentage: Math.round((current / total) * 100),
-          stage
-        });
-      }
-    };
+    // コーデックオプションを設定
+    const hwaccel = await checkVideoToolboxSupport();
     
     // ステージ1: 各素材を統一フォーマットに変換
     console.log('ステージ1: 素材変換開始');
     updateProgress(0, mediaFiles.length, 'converting');
     
-    const tempFiles = [];
+    const concatFileContent = [];
+    
     for (let i = 0; i < mediaFiles.length; i++) {
       const file = mediaFiles[i];
       const tempFilePath = path.join(tempDir, `temp_${i}_${Date.now()}.mp4`);
       
       console.log(`ファイル ${i+1}/${mediaFiles.length} を変換中:`, file.path);
       
-      // 解像度の設定
-      let resolution;
-      switch (settings.resolution) {
-        case '720p': resolution = '1280:720'; break;
-        case '1080p': resolution = '1920:1080'; break;
-        case '2k': resolution = '2560:1440'; break;
-        case '4k': resolution = '3840:2160'; break;
-        default: resolution = '1920:1080';
-      }
-      
-      // コーデックの設定
-      let videoCodec, audioCodec, extraOptions = [];
-      switch (settings.codec) {
-        case 'h264':
-          // ハードウェアエンコードが利用可能な場合はそれを使用、そうでなければソフトウェアエンコードにフォールバック
-          if (hwaccelSupport.h264) {
-            videoCodec = 'h264_videotoolbox';
-            audioCodec = 'aac';
-            // より安全なパラメータ設定
-            extraOptions = [
-              '-b:v', '8000k',          // ビデオビットレート
-              '-allow_sw', '1',         // ソフトウェアフォールバック許可
-              '-pix_fmt', 'yuv420p',    // 最も互換性の高いピクセルフォーマット
-              '-profile:v', 'high',     // プロファイル設定
-              '-tag:v', 'avc1',         // 互換性のあるタグ
-              '-color_range', 'tv'      // 標準色域
-            ];
-          } else {
-            videoCodec = 'libx264';
-            audioCodec = 'aac';
-            extraOptions = [
-              '-crf', '23',
-              '-preset', 'medium',
-              '-pix_fmt', 'yuv420p'
-            ];
-          }
-          break;
-        case 'h265':
-          // ハードウェアエンコードが利用可能な場合はそれを使用、そうでなければソフトウェアエンコードにフォールバック
-          if (hwaccelSupport.hevc) {
-            videoCodec = 'hevc_videotoolbox';
-            audioCodec = 'aac';
-            // より安全なパラメータ設定
-            extraOptions = [
-              '-b:v', '6000k',          // ビデオビットレート
-              '-allow_sw', '1',         // ソフトウェアフォールバック許可
-              '-pix_fmt', 'yuv420p',    // 最も互換性の高いピクセルフォーマット
-              '-tag:v', 'hvc1',         // 互換性のあるタグ
-              '-color_range', 'tv'      // 標準色域
-            ];
-          } else {
-            videoCodec = 'libx265';
-            audioCodec = 'aac';
-            extraOptions = [
-              '-crf', '28',
-              '-preset', 'medium',
-              '-pix_fmt', 'yuv420p'
-            ];
-          }
-          break;
-        case 'prores_hq':
-          videoCodec = 'prores_ks';
-          audioCodec = 'pcm_s16le';
-          extraOptions = [
-            '-profile:v', '3',
-            '-vendor', 'apl0',
-            '-pix_fmt', 'yuv422p10le'  // ProResの標準ピクセルフォーマット
-          ];
-          break;
-        default:
-          // デフォルトのエンコーダー設定（より安全な設定に変更）
-          if (hwaccelSupport.h264) {
-            videoCodec = 'h264_videotoolbox';
-            audioCodec = 'aac';
-            extraOptions = [
-              '-b:v', '8000k',
-              '-allow_sw', '1',
-              '-pix_fmt', 'yuv420p',
-              '-profile:v', 'high',
-              '-tag:v', 'avc1',
-              '-color_range', 'tv'
-            ];
-          } else {
-            videoCodec = 'libx264';
-            audioCodec = 'aac';
-            extraOptions = [
-              '-crf', '23',
-              '-preset', 'medium',
-              '-pix_fmt', 'yuv420p'
-            ];
-          }
-      }
-      
-      // FFmpegの引数を構築（単一ファイル変換用）
-      // 入力ファイルのパラメータを追加（より安全なデコード設定）
-      const ffmpegArgs = [
-        // 入力オプション
-        '-hwaccel', 'auto',          // 利用可能なハードウェアアクセラレーションを自動選択
+      let ffmpegArgs = [
         '-i', file.path,
-        
-        // 出力オプション
-        '-map', '0:v:0',             // 主映像ストリームのみ選択（添付画像を除外）
-        '-map', '0:a:0?',            // 主音声ストリームがあれば選択
-        '-map_metadata', '-1',       // メタデータを削除
-        '-c:v', videoCodec,
-        '-c:a', audioCodec,
-        '-r', settings.fps || '30',
-        '-s', resolution,
-        ...extraOptions,
-        '-y',
-        tempFilePath
+        '-vf', `scale=${resolution}:force_original_aspect_ratio=decrease,pad=${resolution}:(ow-iw)/2:(oh-ih)/2,setsar=1`,
+        '-r', settings.fps,
+        '-pix_fmt', 'yuv420p'
       ];
+      
+      // トリムが設定されている場合
+      if (file.trim && (file.trim.start > 0 || file.trim.end > 0)) {
+        // トリムの開始と終了時間を設定
+        const start = file.trim.start;
+        const duration = file.trim.end - file.trim.start;
+        
+        // -ss（開始位置）と-t（継続時間）を追加
+        ffmpegArgs.splice(1, 0, '-ss', start.toString());
+        ffmpegArgs.splice(3, 0, '-t', duration.toString());
+      }
+      
+      // Loudness 正規化がオンの場合
+      if (file.loudnessNormalization !== false) {
+        try {
+          // まだLUFS情報がない場合は測定
+          let loudnessInfo = file.loudnessInfo;
+          
+          if (!loudnessInfo) {
+            loudnessInfo = await measureLoudness(file.path);
+            // mainWindow?.webContents.send('loudness-measured', { id: file.id, loudnessInfo });
+          }
+          
+          // YouTubeの推奨値である-14 LUFSに合わせて正規化
+          ffmpegArgs.push('-af', `loudnorm=I=-14:LRA=11:TP=-1.5`);
+          
+          console.log(`ラウドネス正規化適用: ${file.path} (現在: ${loudnessInfo.inputIntegratedLoudness} LUFS → 目標: -14 LUFS)`);
+        } catch (error) {
+          console.error('ラウドネス正規化エラー:', error);
+          // エラーが発生してもラウドネス正規化をスキップして処理を続行
+        }
+      }
+      
+      // ハードウェアエンコーダー（H.264/H.265）またはProResを選択
+      if (settings.codec === 'h264') {
+        if (hwaccel) {
+          // macOSのVideoToolboxを使用（H.264）
+          ffmpegArgs.push('-c:v', 'h264_videotoolbox', '-b:v', '20M');
+        } else {
+          // ソフトウェアエンコーダーを使用
+          ffmpegArgs.push('-c:v', 'libx264', '-crf', '22', '-preset', 'fast');
+        }
+      } else if (settings.codec === 'h265') {
+        if (hwaccel) {
+          // macOSのVideoToolboxを使用（H.265/HEVC）
+          ffmpegArgs.push('-c:v', 'hevc_videotoolbox', '-b:v', '20M');
+        } else {
+          // ソフトウェアエンコーダーを使用
+          ffmpegArgs.push('-c:v', 'libx265', '-crf', '26', '-preset', 'fast');
+        }
+      } else if (settings.codec === 'prores_hq') {
+        // ProRes HQ
+        ffmpegArgs.push('-c:v', 'prores_ks', '-profile:v', '3', '-qscale:v', '5');
+      }
       
       try {
         // 画像ファイルの場合、特別な処理を追加
@@ -676,49 +959,26 @@ ipcMain.handle('export-combined-video', async (event, { mediaFiles, outputPath, 
           ffmpegArgs.splice(1, 0, '-loop', '1', '-t', '5');
         }
         
-        // DJI動画の場合、添付画像や特殊ストリームへの対応を追加
-        if (file.path.includes('DJI_')) {
-          console.log('DJI動画を検出しました:', file.path);
-          
-          // ストリームマッピングを上書き（DJI特有の添付画像やメタデータを除外）
-          // '-map'オプションの位置を特定
-          const mapIndex = ffmpegArgs.indexOf('-map');
-          if (mapIndex !== -1) {
-            // 既存のマッピングオプションを削除
-            while (ffmpegArgs.indexOf('-map') !== -1) {
-              const idx = ffmpegArgs.indexOf('-map');
-              ffmpegArgs.splice(idx, 2);  // '-map'とその引数を削除
-            }
-            
-            // 新しいマッピングを追加
-            ffmpegArgs.splice(mapIndex, 0, 
-              '-map', '0:v:0',     // メインビデオストリームのみ
-              '-map', '0:a:0?'     // メイン音声ストリームがあれば
-            );
-          }
-        }
+        // 音声処理
+        ffmpegArgs.push('-c:a', 'aac', '-b:a', '192k');
         
-        console.log(`ファイル ${i+1}/${mediaFiles.length} 変換コマンド:`, ffmpegArgs.join(' '));
+        // 最終的なファイルパスを追加
+        ffmpegArgs.push(tempFilePath);
         
+        // FFmpegコマンドを実行
         await runFFmpegCommand(ffmpegArgs);
-        tempFiles.push(tempFilePath);
-        updateProgress(i + 1, mediaFiles.length, 'converting');
         
-        // 変換されたファイルが正しく作成されたか確認
-        if (fs.existsSync(tempFilePath)) {
-          const fileStats = fs.statSync(tempFilePath);
-          console.log(`変換済みファイル情報: ${tempFilePath}, サイズ: ${fileStats.size} bytes`);
-          
-          if (fileStats.size < 1000) {
-            console.warn(`警告: 変換されたファイルのサイズが小さすぎます: ${fileStats.size} bytes`);
-          }
-        } else {
-          console.error(`エラー: 変換後のファイルが見つかりません: ${tempFilePath}`);
-        }
-      } catch (error) {
-        console.error(`ファイル ${file.path} の変換に失敗:`, error);
-        // エラーが発生しても処理を続行し、変換できたファイルだけを結合
+        // 一時ファイルリストに追加
+        tempFiles.push(tempFilePath);
+        
+        // concat用のエントリを追加
+        concatFileContent.push(`file '${tempFilePath.replace(/'/g, "'\\''")}'`);
+        
+        // 進捗更新
         updateProgress(i + 1, mediaFiles.length, 'converting');
+      } catch (error) {
+        console.error(`ファイル変換エラー (${file.path}):`, error);
+        // エラーが発生してもスキップして次のファイルを処理
       }
     }
     
@@ -730,15 +990,12 @@ ipcMain.handle('export-combined-video', async (event, { mediaFiles, outputPath, 
     console.log('ステージ2: ファイル結合開始');
     updateProgress(0, 1, 'combining');
     
-    // 一時ファイルリスト
-    const tempListPath = path.join(tempDir, `filelist_${Date.now()}.txt`);
-    
-    // 素材リストをファイルに書き出し
+    // 一時ファイルリストをファイルに書き出し
     let fileContent = '';
     for (const file of tempFiles) {
       fileContent += `file '${file.replace(/'/g, "'\\''")}'\n`;
     }
-    fs.writeFileSync(tempListPath, fileContent);
+    fs.writeFileSync(concatFilePath, fileContent);
     
     // 出力ファイル名
     const ext = settings.format || 'mp4';
@@ -748,7 +1005,7 @@ ipcMain.handle('export-combined-video', async (event, { mediaFiles, outputPath, 
     const concatArgs = [
       '-f', 'concat',
       '-safe', '0',
-      '-i', tempListPath,
+      '-i', concatFilePath,
       '-c', 'copy',      // 再エンコードなし
       '-map', '0',       // 全入力ストリームをマップ
       '-movflags', '+faststart',  // Web配信に適した形式
@@ -775,7 +1032,7 @@ ipcMain.handle('export-combined-video', async (event, { mediaFiles, outputPath, 
       for (const file of tempFiles) {
         fs.unlinkSync(file);
       }
-      fs.unlinkSync(tempListPath);
+      fs.unlinkSync(concatFilePath);
       fs.rmdirSync(tempDir);
     } catch (cleanupError) {
       console.warn('一時ファイルの削除に失敗:', cleanupError);
