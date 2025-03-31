@@ -6,7 +6,7 @@ import {
 } from 'react-resizable-panels';
 import Header from './Header';
 import TimelinePane from './TimelinePane';
-import VideoPlayer from './VideoPlayer';
+import VideoPlayer, { VideoPlayerRef } from './VideoPlayer';
 import TrimPane from './TrimPane';
 import ExportSettings from './ExportSettings';
 import StatusBar from './StatusBar';
@@ -27,6 +27,62 @@ const App: React.FC = () => {
   const [showExportSettings, setShowExportSettings] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const appRef = useRef<HTMLDivElement>(null);
+  const videoPlayerRef = useRef<VideoPlayerRef>(null);
+
+  // キーボードショートカットの処理
+  useEffect(() => {
+    const handleKeyDown = (e: KeyboardEvent) => {
+      // フォーム要素にフォーカスがある場合はショートカットを無視
+      if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) {
+        return;
+      }
+
+      switch (e.key.toLowerCase()) {
+        case ' ':
+          e.preventDefault(); // スクロールを防止
+          videoPlayerRef.current?.togglePlayback();
+          break;
+        case 'k':
+          videoPlayerRef.current?.stopPlayback();
+          break;
+        case 'j':
+          e.preventDefault();
+          const currentRate = videoPlayerRef.current?.playbackRate || 1;
+          const newRate = currentRate >= 8 ? 2 : currentRate * 2;
+          videoPlayerRef.current?.changePlaybackRate(-newRate);
+          break;
+        case 'l':
+          e.preventDefault();
+          const currentForwardRate = videoPlayerRef.current?.playbackRate || 1;
+          const newForwardRate = currentForwardRate >= 8 ? 2 : currentForwardRate * 2;
+          videoPlayerRef.current?.changePlaybackRate(newForwardRate);
+          break;
+        case 'arrowup':
+          e.preventDefault();
+          if (selectedMedia) {
+            const currentIndex = mediaFiles.findIndex(m => m.id === selectedMedia.id);
+            if (currentIndex > 0) {
+              const newMedia = mediaFiles[currentIndex - 1];
+              setSelectedMedia(newMedia);
+            }
+          }
+          break;
+        case 'arrowdown':
+          e.preventDefault();
+          if (selectedMedia) {
+            const currentIndex = mediaFiles.findIndex(m => m.id === selectedMedia.id);
+            if (currentIndex < mediaFiles.length - 1) {
+              const newMedia = mediaFiles[currentIndex + 1];
+              setSelectedMedia(newMedia);
+            }
+          }
+          break;
+      }
+    };
+
+    window.addEventListener('keydown', handleKeyDown);
+    return () => window.removeEventListener('keydown', handleKeyDown);
+  }, [selectedMedia, mediaFiles]);
 
   // アプリケーション起動時の処理
   useEffect(() => {
@@ -216,6 +272,7 @@ const App: React.FC = () => {
                 {/* 上部: ビデオプレーヤー */}
                 <Panel defaultSize={70} minSize={50}>
                   <VideoPlayer
+                    ref={videoPlayerRef}
                     media={selectedMedia}
                   />
                 </Panel>
