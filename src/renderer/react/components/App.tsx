@@ -21,7 +21,6 @@ const App: React.FC = () => {
   // アプリケーションの状態
   const [mediaFiles, setMediaFiles] = useState<any[]>([]);
   const [selectedMedia, setSelectedMedia] = useState<any | null>(null);
-  const [taskCount, setTaskCount] = useState(0);
   const [status, setStatus] = useState('準備完了');
   const [ffmpegVersion, setFfmpegVersion] = useState('');
   const [showExportSettings, setShowExportSettings] = useState(false);
@@ -385,7 +384,6 @@ const App: React.FC = () => {
     <div className={`app-container ${isDragging ? 'dragover' : ''}`} ref={appRef}>
       {/* ヘッダー */}
       <Header
-        taskCount={taskCount}
         onAddFiles={handleAddFiles}
         onToggleExport={toggleExportSettings}
       />
@@ -446,4 +444,4 @@ const App: React.FC = () => {
   );
 };
 
-export default App; 
+export default App;
