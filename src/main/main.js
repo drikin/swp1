@@ -20,6 +20,9 @@ console.log('FFmpeg path:', ffmpegPath);
 // ウィンドウオブジェクトのグローバル参照を保持
 let mainWindow;
 
+// 一時ディレクトリのパス
+const tempDir = path.join(app.getPath('temp'), 'swp1-thumbnails');
+
 function createWindow() {
   // ブラウザウィンドウを作成
   mainWindow = new BrowserWindow({
@@ -28,7 +31,8 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false, // Node.js統合を無効化
       contextIsolation: true, // コンテキスト分離を有効化
-      preload: path.join(__dirname, 'preload.js')
+      preload: path.join(__dirname, 'preload.js'),
+      webSecurity: false // ローカルファイルアクセスを許可
     }
   });
 
@@ -49,6 +53,11 @@ function createWindow() {
 // Electronの初期化が完了したらウィンドウを作成
 app.whenReady().then(() => {
   createWindow();
+  
+  // 一時ディレクトリを作成
+  if (!fs.existsSync(tempDir)) {
+    fs.mkdirSync(tempDir, { recursive: true });
+  }
   
   // ファイルのドラッグ&ドロップを許可
   app.on('browser-window-created', (_, window) => {
@@ -79,6 +88,51 @@ const SUPPORTED_EXTENSIONS = {
   video: ['mp4', 'mov', 'avi', 'webm', 'mkv', 'mts', 'm2ts', 'mpg', 'mpeg', 'hevc', 'h265', 'h264'],
   image: ['jpg', 'jpeg', 'png', 'gif', 'bmp', 'tiff', 'webp']
 };
+
+// サムネイルを生成する関数
+async function generateThumbnail(filePath, fileId) {
+  try {
+    const ext = path.extname(filePath).toLowerCase();
+    // サムネイルを一時ディレクトリに保存
+    const thumbnailPath = path.join(tempDir, `thumbnail-${fileId}.jpg`);
+    
+    // 動画と画像で異なる処理
+    if (['.mp4', '.mov', '.avi', '.webm', '.mkv', '.mts', '.m2ts'].includes(ext)) {
+      // 動画ファイルの場合
+      await runFFmpegCommand([
+        '-i', filePath,
+        '-ss', '00:00:01',        // 1秒目のフレームを取得
+        '-vframes', '1',          // 1フレームのみ
+        '-vf', 'scale=120:-1',    // 幅120pxに変換
+        '-f', 'image2',           // 画像フォーマット指定
+        thumbnailPath
+      ]);
+    } else if (['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp'].includes(ext)) {
+      // 画像ファイルの場合
+      await runFFmpegCommand([
+        '-i', filePath,
+        '-vf', 'scale=120:-1',    // 幅120pxに変換
+        '-f', 'image2',           // 画像フォーマット指定
+        thumbnailPath
+      ]);
+    } else {
+      return null; // サポートされていない形式
+    }
+    
+    // 生成されたサムネイルをBase64エンコード
+    if (fs.existsSync(thumbnailPath)) {
+      const imageBuffer = fs.readFileSync(thumbnailPath);
+      if (imageBuffer.length > 0) {
+        return `data:image/jpeg;base64,${imageBuffer.toString('base64')}`;
+      }
+    }
+    
+    return null;
+  } catch (error) {
+    console.error('サムネイル生成エラー:', error);
+    return null;
+  }
+}
 
 // ファイル選択ダイアログを開く
 ipcMain.handle('open-file-dialog', async (event, paths) => {
@@ -127,15 +181,37 @@ ipcMain.handle('open-file-dialog', async (event, paths) => {
           
           if (allSupportedExtensions.includes(ext)) {
             console.log('Adding file:', filePath);
+            // ファイルIDを生成
+            const fileId = `file-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+            
             // ファイル情報をオブジェクトとして追加
             const fileObj = {
-              id: `file-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+              id: fileId,
               path: filePath,
               name: path.basename(filePath),
-              type: ext.match(/(mp4|mov|avi|webm|mkv)/) ? 'video' : 'image',
+              type: SUPPORTED_EXTENSIONS.video.includes(ext) ? 'video' : 'image',
               size: stats.size,
               lastModified: stats.mtime
             };
+            
+            // サムネイルを生成
+            const thumbnail = await generateThumbnail(filePath, fileId);
+            if (thumbnail) {
+              fileObj.thumbnail = thumbnail;
+            }
+            
+            // 動画の場合、長さ情報を取得
+            if (fileObj.type === 'video') {
+              try {
+                const info = await getMediaInfo(filePath);
+                if (info && info.duration) {
+                  fileObj.duration = info.duration;
+                }
+              } catch (err) {
+                console.error('メディア情報取得エラー:', err);
+              }
+            }
+            
             allFiles.push(fileObj);
           }
         }
@@ -173,6 +249,7 @@ function getFilesRecursively(dir) {
       try {
         if (entry.isDirectory()) {
           // ディレクトリの場合は再帰的に探索
+          console.log('Processing directory:', fullPath);
           const subDirFiles = getFilesRecursively(fullPath);
           files.push(...subDirFiles);
         } else {
@@ -181,16 +258,37 @@ function getFilesRecursively(dir) {
           const allSupportedExtensions = [...SUPPORTED_EXTENSIONS.video, ...SUPPORTED_EXTENSIONS.image];
           
           if (allSupportedExtensions.includes(ext)) {
+            // ファイルIDを生成
+            const fileId = `file-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+            
             // ファイル情報をオブジェクトとして追加
             const stats = fs.statSync(fullPath);
             const fileObj = {
-              id: `file-${Date.now()}-${Math.floor(Math.random() * 10000)}`,
+              id: fileId,
               path: fullPath,
               name: entry.name,
-              type: ext.match(/(mp4|mov|avi|webm|mkv)/) ? 'video' : 'image',
+              type: SUPPORTED_EXTENSIONS.video.includes(ext) ? 'video' : 'image',
               size: stats.size,
               lastModified: stats.mtime
             };
+            
+            // サムネイルを非同期で生成（処理を遅延させないためにawaitしない）
+            generateThumbnail(fullPath, fileId).then(thumbnail => {
+              if (thumbnail) {
+                fileObj.thumbnail = thumbnail;
+                
+                // サムネイルが生成されたことをレンダラーに通知
+                if (mainWindow && !mainWindow.isDestroyed()) {
+                  mainWindow.webContents.send('thumbnail-generated', {
+                    id: fileId,
+                    thumbnail: thumbnail
+                  });
+                }
+              }
+            }).catch(err => {
+              console.error('サムネイル生成エラー:', err);
+            });
+            
             files.push(fileObj);
           }
         }
@@ -328,47 +426,38 @@ ipcMain.handle('check-ffmpeg', async () => {
   }
 });
 
-// 動画情報を取得
-ipcMain.handle('get-media-info', async (event, filePath) => {
+// メディア情報を取得する関数
+async function getMediaInfo(filePath) {
   try {
-    const result = await runFFmpegCommand([
+    const args = [
       '-i', filePath,
-      '-hide_banner'
-    ]);
-
-    // メタデータから撮影日時を取得
-    let creationTime = null;
-    const creationTimeMatch = result.stderr.match(/creation_time\s*:\s*(\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2})/i);
-    if (creationTimeMatch) {
-      creationTime = new Date(creationTimeMatch[1]).getTime();
-    } else {
-      // メタデータがない場合はファイルの作成日時を使用
-      const stats = fs.statSync(filePath);
-      creationTime = stats.birthtimeMs || stats.mtimeMs;
-    }
-
-    return { 
-      success: true, 
-      info: result.stderr,
-      creationTime 
-    }; // FFmpegは情報をstderrに出力する
-  } catch (error) {
-    // エラーの場合でもFFmpegは情報をstderrに出力するため、その情報を使用
-    let creationTime = null;
-    try {
-      // メタデータが取得できない場合はファイルの作成日時を使用
-      const stats = fs.statSync(filePath);
-      creationTime = stats.birthtimeMs || stats.mtimeMs;
-    } catch (e) {
-      console.error('Failed to get file stats:', e);
-    }
+      '-hide_banner',
+      '-v', 'error',
+      '-show_format',
+      '-show_streams',
+      '-print_format', 'json'
+    ];
     
-    return { 
-      success: true, 
-      info: error.message,
-      creationTime 
+    const { stdout } = await runFFmpegCommand(args);
+    const info = JSON.parse(stdout);
+    
+    // 必要な情報を抽出
+    const result = {
+      format: info.format,
+      streams: info.streams,
+      duration: parseFloat(info.format.duration || 0)
     };
+    
+    return result;
+  } catch (error) {
+    console.error('メディア情報取得エラー:', error);
+    throw error;
   }
+}
+
+// メディア情報取得のIPC通信を設定
+ipcMain.handle('get-media-info', async (event, filePath) => {
+  return await getMediaInfo(filePath);
 });
 
 // 波形データを生成

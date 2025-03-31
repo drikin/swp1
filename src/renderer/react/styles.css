@@ -250,9 +250,9 @@ button:active {
 .media-item {
   display: flex;
   align-items: center;
-  padding: 0.4rem;
+  padding: 6px 8px;
   border-radius: 4px;
-  margin-bottom: 0.25rem;
+  margin-bottom: 6px;
   background-color: #2a2a2a;
   cursor: pointer;
   transition: background-color 0.2s, transform 0.15s;
@@ -276,30 +276,50 @@ button:active {
   z-index: 100;
 }
 
+/* サムネイル表示の改善 */
 .media-thumbnail {
-  width: 48px;
-  height: 48px;
-  margin-right: 0.75rem;
+  width: 60px;
+  height: 60px;
+  margin-right: 8px;
+  border-radius: 3px;
+  overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: #222;
-  border-radius: 4px;
+  background-color: #1e1e1e;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.media-thumbnail img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  background-color: #333;
 }
 
 .placeholder-thumbnail {
-  font-size: 1.2rem;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  background-color: #2a2a2a;
+  color: #ccc;
 }
 
 .media-details {
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  justify-content: center;
 }
 
 .media-name {
   font-weight: 500;
+  margin-bottom: 2px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -307,9 +327,9 @@ button:active {
 
 .media-info {
   display: flex;
-  gap: 0.5rem;
-  font-size: 0.85rem;
-  color: #bbb;
+  gap: 8px;
+  font-size: 0.75rem;
+  color: #aaa;
 }
 
 .empty-list {

@@ -28,6 +28,7 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
 }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [selectedMedias, setSelectedMedias] = useState<string[]>([]);
+  const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
   const timelinePaneRef = useRef<HTMLDivElement>(null);
 
   // 単一メディア選択時に選択リストも更新
@@ -37,6 +38,26 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
       setSelectedMedias([selectedMedia.id]);
     }
   }, [selectedMedia]);
+
+  // サムネイル更新イベントのリスナー設定
+  useEffect(() => {
+    if (window.api && window.api.on) {
+      const handleThumbnailGenerated = (data: { id: string; thumbnail: string }) => {
+        setThumbnails(prev => ({
+          ...prev,
+          [data.id]: data.thumbnail
+        }));
+      };
+
+      window.api.on('thumbnail-generated', handleThumbnailGenerated);
+
+      return () => {
+        if (window.api && window.api.off) {
+          window.api.off('thumbnail-generated', handleThumbnailGenerated);
+        }
+      };
+    }
+  }, []);
 
   // ドラッグ&ドロップ処理の設定
   useEffect(() => {
@@ -241,8 +262,22 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
                           onClick={(e) => handleMediaClick(media, e)}
                         >
                           <div className="media-thumbnail">
-                            {media.thumbnail ? (
-                              <img src={media.thumbnail} alt={media.name} />
+                            {(media.thumbnail || thumbnails[media.id]) ? (
+                              <img 
+                                src={thumbnails[media.id] || media.thumbnail} 
+                                alt={media.name}
+                                onError={(e) => {
+                                  // 画像読み込みエラー時の処理
+                                  const target = e.target as HTMLImageElement;
+                                  // エラー発生時にはプレースホルダーを表示
+                                  target.style.display = 'none';
+                                  // プレースホルダーを表示
+                                  const placeholder = document.createElement('div');
+                                  placeholder.className = 'placeholder-thumbnail';
+                                  placeholder.textContent = media.type.startsWith('video') ? '🎬' : '🔊';
+                                  target.parentNode?.appendChild(placeholder);
+                                }}
+                              />
                             ) : (
                               <div className="placeholder-thumbnail">
                                 {media.type.startsWith('video') ? '🎬' : '🔊'}

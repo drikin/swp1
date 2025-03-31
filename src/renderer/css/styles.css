@@ -1,4 +1,5 @@
 /* 基本スタイル */
+
 body {
   font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', Roboto, Helvetica, Arial, sans-serif;
   font-size: 9pt;
@@ -242,15 +243,19 @@ button:active {
 .media-list {
   display: flex;
   flex-direction: column;
-  gap: 0.5rem;
+  padding: 0.2rem;
+  min-height: 100px;
 }
 
 .media-item {
   display: flex;
-  background-color: #2a2a2a;
+  align-items: center;
+  padding: 6px 8px;
   border-radius: 4px;
-  padding: 0.5rem;
+  margin-bottom: 6px;
+  background-color: #2a2a2a;
   cursor: pointer;
+  transition: background-color 0.2s, transform 0.15s;
 }
 
 .media-item:hover {
@@ -261,30 +266,60 @@ button:active {
   background-color: #0078d7;
 }
 
+/* ドラッグ中のスタイル */
+.media-item.dragging {
+  transform: scale(1.02);
+  box-shadow: 0 5px 10px rgba(0, 0, 0, 0.5);
+  opacity: 0.9;
+  background-color: #444;
+  border: 1px solid #0078d7;
+  z-index: 100;
+}
+
+/* サムネイル表示の改善 */
 .media-thumbnail {
-  width: 48px;
-  height: 48px;
-  margin-right: 0.75rem;
+  width: 60px;
+  height: 60px;
+  margin-right: 8px;
+  border-radius: 3px;
+  overflow: hidden;
   display: flex;
   align-items: center;
   justify-content: center;
-  background-color: #222;
-  border-radius: 4px;
+  background-color: #1e1e1e;
+  flex-shrink: 0;
+  position: relative;
+}
+
+.media-thumbnail img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center;
+  background-color: #333;
 }
 
 .placeholder-thumbnail {
-  font-size: 1.2rem;
+  width: 100%;
+  height: 100%;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 24px;
+  background-color: #2a2a2a;
+  color: #ccc;
 }
 
 .media-details {
   flex: 1;
+  min-width: 0;
   display: flex;
   flex-direction: column;
-  justify-content: center;
 }
 
 .media-name {
   font-weight: 500;
+  margin-bottom: 2px;
   white-space: nowrap;
   overflow: hidden;
   text-overflow: ellipsis;
@@ -292,9 +327,9 @@ button:active {
 
 .media-info {
   display: flex;
-  gap: 0.5rem;
-  font-size: 0.85rem;
-  color: #bbb;
+  gap: 8px;
+  font-size: 0.75rem;
+  color: #aaa;
 }
 
 .empty-list {
@@ -365,7 +400,8 @@ button:active {
 
 .timeline-controls {
   display: flex;
-  gap: 0.2rem;
+  align-items: center;
+  gap: 0.3rem;
 }
 
 /* トリミングコントロール */
@@ -567,4 +603,33 @@ select {
   color: #666;
   margin-top: 4px;
   font-style: italic;
+}
+
+/* ドロップ領域のスタイル */
+.media-list {
+  display: flex;
+  flex-direction: column;
+  padding: 0.2rem;
+  min-height: 100px;
+}
+
+/* ドラッグ&ドロップ中の状態 */
+.panel.dragover {
+  border: 2px dashed #0078d7;
+  background-color: rgba(0, 120, 215, 0.15);
+}
+
+/* 複数選択されたアイテムのスタイル */
+.media-item.multi-selected {
+  background-color: rgba(0, 120, 215, 0.3);
+  border: 1px solid #0078d7;
+}
+
+/* 削除ボタン */
+.delete-btn {
+  background-color: #d70040;
+}
+
+.delete-btn:hover {
+  background-color: #ff0048;
 } 
