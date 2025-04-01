@@ -840,20 +840,14 @@ function updateProgress(current, total, stage) {
 }
 
 // 結合動画を書き出す
-ipcMain.handle('export-combined-video', async (event, { mediaFiles, outputPath, settings }) => {
-  const tempDir = path.join(app.getPath('temp'), 'swp1-export');
+ipcMain.handle('export-combined-video', async (event, { mediaFiles, outputPath, settings, filename }) => {
+  const tempDir = path.join(app.getPath('temp'), `swp1-export-${Date.now()}`);
   const tempFiles = [];
   const concatFilePath = path.join(tempDir, 'concat.txt');
   
-  // 一時ディレクトリを作成
+  // 一時ディレクトリを作成（毎回新しい一時ディレクトリを作成して重複回避）
   if (!fs.existsSync(tempDir)) {
     fs.mkdirSync(tempDir, { recursive: true });
-  } else {
-    // 古いファイルをクリア
-    const files = fs.readdirSync(tempDir);
-    for (const file of files) {
-      fs.unlinkSync(path.join(tempDir, file));
-    }
   }
   
   try {
@@ -861,19 +855,19 @@ ipcMain.handle('export-combined-video', async (event, { mediaFiles, outputPath, 
     let resolution;
     switch (settings.resolution) {
       case '720p':
-        resolution = '1280x720';
+        resolution = '1280:720';
         break;
       case '1080p':
-        resolution = '1920x1080';
+        resolution = '1920:1080';
         break;
       case '2k':
-        resolution = '2560x1440';
+        resolution = '2560:1440';
         break;
       case '4k':
-        resolution = '3840x2160';
+        resolution = '3840:2160';
         break;
       default:
-        resolution = '1920x1080';
+        resolution = '1920:1080';
     }
     
     // コーデックオプションを設定
@@ -999,15 +993,29 @@ ipcMain.handle('export-combined-video', async (event, { mediaFiles, outputPath, 
     
     // 出力ファイル名
     const ext = settings.format || 'mp4';
-    const outputFilePath = path.join(outputPath, `export_${Date.now()}.${ext}`);
+    const outputFileName = filename || `export_${Date.now()}.${ext}`;
+    let outputFilePath = path.join(outputPath, outputFileName);
+    
+    // 出力ファイルが既に存在する場合は確認
+    if (fs.existsSync(outputFilePath)) {
+      console.log(`出力ファイルが既に存在します: ${outputFilePath}`);
+      // ファイル名に日時を追加して重複を避ける
+      const timestamp = Date.now();
+      const parts = outputFileName.split('.');
+      const newName = `${parts[0]}_${timestamp}.${parts[parts.length - 1]}`;
+      console.log(`新しいファイル名に変更して書き出します: ${newName}`);
+      outputFilePath = path.join(outputPath, newName);
+    }
     
     // 結合時は再エンコードなしで結合（より安全なオプション追加）
     const concatArgs = [
       '-f', 'concat',
       '-safe', '0',
       '-i', concatFilePath,
+      '-map', '0:v?',    // ビデオストリームのみマップ（存在する場合）
+      '-map', '0:a?',    // オーディオストリームのみマップ（存在する場合）
       '-c', 'copy',      // 再エンコードなし
-      '-map', '0',       // 全入力ストリームをマップ
+      '-ignore_unknown', // 未知のストリームタイプを無視
       '-movflags', '+faststart',  // Web配信に適した形式
     ];
     
