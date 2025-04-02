@@ -38,26 +38,31 @@ interface Window {
   };
 }
 
-interface MediaFile {
+export interface MediaFile {
   id: string;
   name: string;
   path: string;
   type: string;
   size: number;
-  duration?: number;
+  duration?: number; 
   thumbnail?: string;
-  loudnessInfo?: {
-    inputIntegratedLoudness: number;
-    inputTruePeak: number;
-    inputLRA: number;
-    inputThreshold: number;
-    targetIntegratedLoudness: number;
-    targetTruePeak: number;
-    targetLRA: number;
-    targetThreshold: number;
-    lufsGain: number;
-  };
-  loudnessNormalization?: boolean;
+  loudnessInfo?: LoudnessInfo | null; 
+  loudnessNormalization?: boolean; 
+  waveform?: number[]; 
+  trimStart?: number | null; 
+  trimEnd?: number | null;   
+}
+
+export interface LoudnessInfo {
+  inputIntegratedLoudness: number;
+  inputTruePeak: number;
+  inputLRA: number;
+  inputThreshold: number;
+  targetIntegratedLoudness: number;
+  targetTruePeak: number;
+  targetLRA: number;
+  targetThreshold: number;
+  lufsGain: number;
 }
 
 interface TimelineItem {

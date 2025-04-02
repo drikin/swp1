@@ -2,6 +2,7 @@ const { app, BrowserWindow, ipcMain, dialog } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { spawn, execSync } = require('child_process');
+const ffmpeg = require('fluent-ffmpeg');
 
 // システムのFFmpegパスを動的に取得
 let ffmpegPath;
@@ -16,6 +17,9 @@ try {
 
 // FFmpegのパスを確認
 console.log('FFmpeg path:', ffmpegPath);
+
+// fluent-ffmpegにパスを設定
+ffmpeg.setFfmpegPath(ffmpegPath);
 
 // ウィンドウオブジェクトのグローバル参照を保持
 let mainWindow;
@@ -893,10 +897,12 @@ ipcMain.handle('export-combined-video', async (event, { mediaFiles, outputPath, 
       ];
       
       // トリムが設定されている場合
-      if (file.trim && (file.trim.start > 0 || file.trim.end > 0)) {
+      if (typeof file.trimStart === 'number' && typeof file.trimEnd === 'number' && file.trimStart < file.trimEnd) {
         // トリムの開始と終了時間を設定
-        const start = file.trim.start;
-        const duration = file.trim.end - file.trim.start;
+        const start = file.trimStart;
+        const duration = file.trimEnd - file.trimStart;
+        
+        console.log(`Applying trim for ${file.path}: start=${start}s, duration=${duration}s`);
         
         // -ss（開始位置）と-t（継続時間）を追加
         ffmpegArgs.splice(1, 0, '-ss', start.toString());

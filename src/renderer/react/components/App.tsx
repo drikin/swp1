@@ -27,6 +27,7 @@ const App: React.FC = () => {
   const [showExportSettings, setShowExportSettings] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
   const [totalDuration, setTotalDuration] = useState(0); // 操作生成時間
+  const [currentTime, setCurrentTime] = useState(0); // Add currentTime state
   const appRef = useRef<HTMLDivElement>(null);
   const videoPlayerRef = useRef<VideoPlayerRef>(null);
 
@@ -130,6 +131,16 @@ const App: React.FC = () => {
             handleAddFiles();
           }
           break;
+        case 'i': // Set IN point
+          if (selectedMedia && videoPlayerRef.current) {
+            handleUpdateTrimPoints(selectedMedia.id, currentTime, selectedMedia.trimEnd ?? null);
+          }
+          break;
+        case 'o': // Set OUT point
+          if (selectedMedia && videoPlayerRef.current) {
+            handleUpdateTrimPoints(selectedMedia.id, selectedMedia.trimStart ?? null, currentTime);
+          }
+          break;
         case 'arrowup':
         case 'p': // Pキーを上矢印と同じ機能にマッピング
           e.preventDefault();
@@ -158,6 +169,24 @@ const App: React.FC = () => {
     window.addEventListener('keydown', handleKeyDown);
     return () => window.removeEventListener('keydown', handleKeyDown);
   }, [selectedMedia, mediaFiles]);
+
+  // TrimPane からのトリムポイント更新を処理する関数
+  const handleUpdateTrimPoints = (mediaId: string, trimStart: number | null, trimEnd: number | null) => {
+    setMediaFiles(prevFiles => 
+      prevFiles.map(file => 
+        file.id === mediaId ? { ...file, trimStart: trimStart ?? undefined, trimEnd: trimEnd ?? undefined } : file
+      )
+    );
+    // 必要に応じてステータス更新やログ表示
+    // console.log(`Updated trim points for ${mediaId}:`, { trimStart, trimEnd });
+  };
+
+  // TrimPane からの再生位置変更要求を処理する関数
+  const handleSeek = (time: number) => {
+    videoPlayerRef.current?.seekToTime(time);
+    // 必要に応じて currentTime ステートも更新（videoPlayer の onTimeUpdate で更新されるはず）
+    // setCurrentTime(time); 
+  };
 
   // アプリケーション起動時の処理
   useEffect(() => {
@@ -436,6 +465,7 @@ const App: React.FC = () => {
                   <VideoPlayer
                     ref={videoPlayerRef}
                     media={selectedMedia}
+                    onTimeUpdate={setCurrentTime} // Pass setCurrentTime to VideoPlayer
                   />
                 </Panel>
                 
@@ -445,6 +475,9 @@ const App: React.FC = () => {
                 <Panel defaultSize={30} minSize={20}>
                   <TrimPane 
                     selectedMedia={selectedMedia}
+                    currentTime={currentTime} // Pass currentTime to TrimPane
+                    onUpdateTrimPoints={handleUpdateTrimPoints} // Pass the handler
+                    onSeek={handleSeek} // Pass the seek handler
                   />
                 </Panel>
               </PanelGroup>

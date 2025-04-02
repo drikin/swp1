@@ -233,10 +233,34 @@ button:active {
   display: flex;
   justify-content: space-between;
   align-items: center;
-  padding: 0.15rem 0.5rem;
+  padding: 0.1rem 0.4rem;
   background-color: #252525;
   border-top: 1px solid #333;
-  font-size: 0.8rem;
+  height: 1.5rem;
+  font-size: 0.75rem;
+  color: #bbb;
+}
+
+.status-bar span:first-child {
+  text-align: left;
+  flex-basis: 150px;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  flex-shrink: 0;
+}
+
+.status-bar span:last-child {
+  text-align: right;
+  flex-basis: 150px;
+  flex-shrink: 0;
+}
+
+.status-bar .duration-display {
+  flex-grow: 1;
+  text-align: center;
+  font-weight: bold;
+  color: #f0f0f0;
 }
 
 /* メディアリスト */

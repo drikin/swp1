@@ -1,15 +1,18 @@
 import React, { useRef, useEffect, useState, forwardRef } from 'react';
+import { Typography } from '@mui/material';
 
 interface VideoPlayerProps {
   media: any | null;
   onPlaybackStateChange?: (isPlaying: boolean) => void;
   onPlaybackRateChange?: (rate: number) => void;
+  onTimeUpdate?: (time: number) => void;
 }
 
 export interface VideoPlayerRef {
   togglePlayback: () => void;
   stopPlayback: () => void;
   changePlaybackRate: (rate: number) => void;
+  seekToTime: (time: number) => void;
   isPlaying: boolean;
   playbackRate: number;
 }
@@ -18,7 +21,8 @@ export interface VideoPlayerRef {
 const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({ 
   media,
   onPlaybackStateChange,
-  onPlaybackRateChange
+  onPlaybackRateChange,
+  onTimeUpdate
 }, ref) => {
   const videoRef = useRef<HTMLVideoElement>(null);
   const [isPlaying, setIsPlaying] = useState(false);
@@ -180,11 +184,25 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
     }
   };
 
+  // 再生位置を指定時間に移動
+  const seekToTime = (time: number) => {
+    const videoElement = videoRef.current;
+    if (!videoElement) return;
+
+    // 時間をクランプ（0からdurationの間）
+    const clampedTime = Math.max(0, Math.min(time, videoElement.duration || Infinity));
+    videoElement.currentTime = clampedTime;
+
+    // TimeUpdateイベントを手動でトリガーしてUIを即時更新
+    onTimeUpdate?.(clampedTime);
+  };
+
   // コンポーネントの外部から制御できるようにメソッドを公開
   React.useImperativeHandle(ref, () => ({
     togglePlayback,
     stopPlayback,
     changePlaybackRate,
+    seekToTime,
     isPlaying,
     playbackRate
   }));
@@ -192,7 +210,7 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
   return (
     <div className="panel">
       <div className="panel-header">
-        <h2>プレビュー</h2>
+        <Typography variant="body2" gutterBottom>プレビュー</Typography>
         {media && <span className="media-title">{media.name}</span>}
       </div>
       <div className="panel-content">
@@ -203,6 +221,14 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
               controls
               className="player-element"
               autoPlay={false}
+              onPlay={() => setIsPlaying(true)}
+              onPause={() => setIsPlaying(false)}
+              onEnded={() => stopPlayback()} // 再生終了時に停止
+              onTimeUpdate={() => { 
+                if (videoRef.current && onTimeUpdate) {
+                  onTimeUpdate(videoRef.current.currentTime);
+                }
+              }}
             />
           ) : (
             <div className="empty-player">
