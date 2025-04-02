@@ -10,6 +10,7 @@ import VideoPlayer, { VideoPlayerRef } from './VideoPlayer';
 import TrimPane from './TrimPane';
 import ExportSettings from './ExportSettings';
 import StatusBar from './StatusBar';
+import { formatDuration } from '../../utils/formatters';
 
 // Electronでのファイル型拡張（pathプロパティを持つ）
 interface ElectronFile extends File {
@@ -25,8 +26,25 @@ const App: React.FC = () => {
   const [ffmpegVersion, setFfmpegVersion] = useState('');
   const [showExportSettings, setShowExportSettings] = useState(false);
   const [isDragging, setIsDragging] = useState(false);
+  const [totalDuration, setTotalDuration] = useState(0); // 操作生成時間
   const appRef = useRef<HTMLDivElement>(null);
   const videoPlayerRef = useRef<VideoPlayerRef>(null);
+
+  // 操作生成時間の計算関数
+  const calculateTotalDuration = (files: any[]): number => {
+    return files.reduce((total, file) => {
+      const startTime = file.trimStart ?? 0;
+      const endTime = file.trimEnd ?? file.duration; // trimEnd がなければ duration を使用
+      const duration = (endTime && startTime !== undefined) ? endTime - startTime : (file.duration ?? 0);
+      return total + (duration > 0 ? duration : 0);
+    }, 0);
+  };
+
+  // mediaFiles が変更されたら合計時間を再計算
+  useEffect(() => {
+    const duration = calculateTotalDuration(mediaFiles);
+    setTotalDuration(duration);
+  }, [mediaFiles]);
 
   // キーボードショートカットの処理
   useEffect(() => {
@@ -439,6 +457,7 @@ const App: React.FC = () => {
       <StatusBar
         status={status}
         ffmpegVersion={ffmpegVersion}
+        totalDuration={totalDuration} // 操作生成時間を渡す
       />
     </div>
   );
