@@ -1,18 +1,23 @@
 import React from 'react';
+import { formatDuration } from '../../utils/formatters';
 
 interface StatusBarProps {
   status: string;
   ffmpegVersion: string;
+  totalDuration: number;
 }
 
 // ステータスバーコンポーネント
-const StatusBar: React.FC<StatusBarProps> = ({ status, ffmpegVersion }) => {
+const StatusBar: React.FC<StatusBarProps> = ({ status, ffmpegVersion, totalDuration }) => {
+  const formattedDuration = formatDuration(totalDuration);
+
   return (
-    <footer className="status-bar">
-      <div className="status-message">{status}</div>
-      <div className="ffmpeg-version">{ffmpegVersion}</div>
-    </footer>
+    <div className="status-bar">
+      <span>{status}</span>
+      <span className="duration-display">Total: {formattedDuration}</span>
+      <span>{ffmpegVersion}</span>
+    </div>
   );
 };
 
-export default StatusBar; 
+export default StatusBar;
