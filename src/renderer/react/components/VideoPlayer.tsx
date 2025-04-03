@@ -41,8 +41,12 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
       const filePath = media.path.startsWith('file://') 
         ? media.path 
         : `file://${media.path}`;
-      videoElement.src = filePath;
-      videoElement.load();
+      
+      // 現在のsrcと新しいpathが異なる場合のみ再読み込み
+      if (videoElement.src !== filePath) {
+        videoElement.src = filePath;
+        videoElement.load();
+      }
     } else {
       videoElement.src = '';
     }
