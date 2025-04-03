@@ -131,16 +131,6 @@ const App: React.FC = () => {
             handleAddFiles();
           }
           break;
-        case 'i': // Set IN point
-          if (selectedMedia && videoPlayerRef.current) {
-            handleUpdateTrimPoints(selectedMedia.id, currentTime, selectedMedia.trimEnd ?? null);
-          }
-          break;
-        case 'o': // Set OUT point
-          if (selectedMedia && videoPlayerRef.current) {
-            handleUpdateTrimPoints(selectedMedia.id, selectedMedia.trimStart ?? null, currentTime);
-          }
-          break;
         case 'arrowup':
         case 'p': // Pキーを上矢印と同じ機能にマッピング
           e.preventDefault();
