@@ -363,9 +363,18 @@ function getFilesRecursively(dir) {
 function runFFmpegCommand(args) {
   return new Promise((resolve, reject) => {
     // 無効な引数チェック
-    if (!args || args.length < 2) {
-      console.error('FFmpeg: 引数が不足しています');
-      return reject(new Error('Invalid FFmpeg arguments'));
+    if (!args || args.length === 0) {
+      console.error('FFmpeg: 引数が指定されていません');
+      return reject(new Error('No FFmpeg arguments provided'));
+    }
+    
+    // 単一引数の場合、特定の有効なコマンドか確認する
+    if (args.length === 1) {
+      const validSingleArgs = ['-version', '-encoders', '-decoders', '-formats', '-devices', '-codecs', '-hwaccels', '-filters'];
+      if (!validSingleArgs.includes(args[0])) {
+        console.error('FFmpeg: 単一引数の場合、有効なコマンドではありません:', args[0]);
+        return reject(new Error(`Invalid single FFmpeg argument: ${args[0]}`));
+      }
     }
     
     // 入力ファイルパスのチェック（通常-iの次の引数がファイルパス）
