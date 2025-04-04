@@ -47,17 +47,35 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
   useEffect(() => {
     if (window.api && window.api.on) {
       const handleThumbnailGenerated = (data: { id: string; thumbnail: string }) => {
-        setThumbnails(prev => ({
-          ...prev,
-          [data.id]: data.thumbnail
-        }));
+        console.log('サムネイル受信:', data.id, '長さ:', data.thumbnail ? data.thumbnail.length : 0);
+        // サムネイルデータの内容確認（デバッグ用）
+        if (data.thumbnail && data.thumbnail.startsWith('data:image')) {
+          console.log('サムネイル形式OK:', data.id);
+        } else if (data.thumbnail) {
+          console.log('サムネイル形式異常:', data.id, data.thumbnail.substring(0, 30) + '...');
+        } else {
+          console.log('サムネイルデータなし:', data.id);
+        }
+        
+        setThumbnails(prev => {
+          const newThumbnails = {
+            ...prev,
+            [data.id]: data.thumbnail
+          };
+          // 更新後の状態を表示（デバッグ用）
+          console.log('サムネイル保存完了:', data.id, 'サムネイル数:', Object.keys(newThumbnails).length);
+          return newThumbnails;
+        });
       };
 
-      window.api.on('thumbnail-generated', handleThumbnailGenerated);
+      const removeListener = window.api.on('thumbnail-generated', handleThumbnailGenerated);
+      
+      // 初期化時にサムネイル状態をログ出力
+      console.log('サムネイルリスナー設定完了');
 
       return () => {
-        if (window.api && window.api.off) {
-          window.api.off('thumbnail-generated', handleThumbnailGenerated);
+        if (removeListener) {
+          removeListener();
         }
       };
     }
@@ -112,7 +130,9 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
       const removeListener = window.api.on('loudness-error', handleLoudnessError);
 
       return () => {
-        removeListener();
+        if (removeListener) {
+          removeListener();
+        }
       };
     }
   }, []);
@@ -178,13 +198,24 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
     e.stopPropagation(); // イベントの伝播を防止
     if (!window.api) return;
 
+    // メディアとパスが存在することを確認
+    if (!media || !media.path || !media.id) {
+      console.error('ラウドネス測定エラー: 無効なメディアまたはパス');
+      setLoudnessErrors(prev => ({
+        ...prev,
+        [media?.id || 'unknown']: true
+      }));
+      return;
+    }
+
     try {
       setMeasuringLoudness(prev => ({
         ...prev,
         [media.id]: true
       }));
 
-      const loudnessInfo = await window.api.measureLoudness(media.path);
+      // IDとパスを一緒に送信して、バックエンドで分離できるようにする
+      const loudnessInfo = await window.api.measureLoudness(`${media.id}|${media.path}`);
       if (onUpdateMedia && !loudnessInfo.error) {
         onUpdateMedia(media.id, { 
           loudnessInfo,
@@ -274,11 +305,21 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
   };
 
   // ファイルサイズを表示用にフォーマット
-  const formatFileSize = (size: number): string => {
-    if (size < 1024) return `${size} B`;
-    if (size < 1024 * 1024) return `${(size / 1024).toFixed(1)} KB`;
-    if (size < 1024 * 1024 * 1024) return `${(size / (1024 * 1024)).toFixed(1)} MB`;
-    return `${(size / (1024 * 1024 * 1024)).toFixed(1)} GB`;
+  const formatFileSize = (size: number | undefined | null): string => {
+    // 無効な値の場合は「不明」と表示
+    if (size === undefined || size === null || isNaN(size)) return '不明';
+    
+    // 数値に変換（文字列の場合があるため）
+    const sizeNum = typeof size === 'string' ? parseInt(size, 10) : size;
+    
+    // 変換に失敗した場合も「不明」と表示
+    if (isNaN(sizeNum)) return '不明';
+    
+    // サイズに応じて単位を変更
+    if (sizeNum < 1024) return `${sizeNum} B`;
+    if (sizeNum < 1024 * 1024) return `${(sizeNum / 1024).toFixed(1)} KB`;
+    if (sizeNum < 1024 * 1024 * 1024) return `${(sizeNum / (1024 * 1024)).toFixed(1)} MB`;
+    return `${(sizeNum / (1024 * 1024 * 1024)).toFixed(1)} GB`;
   };
 
   // 時間をフォーマット
@@ -341,90 +382,94 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
                   ref={provided.innerRef}
                   className="media-list"
                 >
-                  {mediaFiles.map((media, index) => {
-                    const isSelected = selectedMedias.includes(media.id);
-                    const isMeasuringLoudness = measuringLoudness[media.id] || false;
-                    
-                    return (
-                      <Draggable
-                        key={media.id}
-                        draggableId={media.id}
-                        index={index}
-                      >
-                        {(provided, snapshot) => (
-                          <div
-                            ref={provided.innerRef}
-                            {...provided.draggableProps}
-                            {...provided.dragHandleProps}
-                            className={`media-item ${selectedMedia?.id === media.id ? 'active' : ''} ${isSelected ? 'selected' : ''} ${snapshot.isDragging ? 'dragging' : ''}`}
-                            onClick={(e) => handleMediaClick(media, e)}
-                          >
-                            <div className="media-thumbnail">
-                              {thumbnails[media.id] ? (
-                                <img src={thumbnails[media.id]} alt={media.name} />
-                              ) : (
-                                <div className="thumbnail-placeholder">
-                                  {media.type === 'video' ? '🎬' : '🖼️'}
-                                </div>
-                              )}
-                            </div>
-                            <div className="media-info">
-                              <div className="media-name">{media.name}</div>
-                              <div className="media-details">
-                                <span className="media-type">{media.type === 'video' ? '動画' : '画像'}</span>
-                                {media.duration && <span className="media-duration">{formatDuration(media.duration)}</span>}
-                                <span className="media-size">{formatFileSize(media.size)}</span>
-                              </div>
-                              
-                              {/* ラウドネス情報の表示 */}
-                              <div className="media-loudness">
-                                {media.loudnessInfo ? (
-                                  <div className="loudness-info">
-                                    <div className="loudness-value">
-                                      現在: {formatLoudness(media.loudnessInfo.inputIntegratedLoudness)}
-                                      {media.loudnessInfo.lufsGain !== undefined && (
-                                        <span className={media.loudnessInfo.lufsGain > 0 ? 'gain-positive' : 'gain-negative'}>
-                                          {media.loudnessInfo.lufsGain > 0 ? '+' : ''}{media.loudnessInfo.lufsGain.toFixed(1)}dB
-                                        </span>
-                                      )}
-                                    </div>
-                                    <div className="loudness-controls">
-                                      <label className="toggle-label">
-                                        <input
-                                          type="checkbox"
-                                          checked={media.loudnessNormalization !== false}
-                                          onChange={(e) => handleToggleLoudnessNormalization(media, e)}
-                                          onClick={(e) => e.stopPropagation()}
-                                        />
-                                        <span>-14 LUFS適用</span>
-                                      </label>
-                                    </div>
-                                  </div>
+                  {mediaFiles
+                    .filter(media => media && media.id) // idがある項目のみフィルター
+                    .map((media, index) => {
+                      const isSelected = selectedMedias.includes(media.id);
+                      const isMeasuringLoudness = measuringLoudness[media.id] || false;
+                      // IDをそのまま使用（プレフィックスを追加しない）
+                      const draggableId = `${media.id}`;
+                      
+                      return (
+                        <Draggable
+                          key={draggableId}
+                          draggableId={draggableId}
+                          index={index}
+                        >
+                          {(provided, snapshot) => (
+                            <div
+                              ref={provided.innerRef}
+                              {...provided.draggableProps}
+                              {...provided.dragHandleProps}
+                              className={`media-item ${selectedMedia?.id === media.id ? 'active' : ''} ${isSelected ? 'selected' : ''} ${snapshot.isDragging ? 'dragging' : ''}`}
+                              onClick={(e) => handleMediaClick(media, e)}
+                            >
+                              <div className="media-thumbnail">
+                                {thumbnails[media.id] ? (
+                                  <img src={thumbnails[media.id]} alt={media.name} />
                                 ) : (
-                                  <div className="loudness-status">
-                                    {media.isMeasuringLoudness ? (
-                                      <div className="measuring-indicator">
-                                        <span className="spinner"></span>
-                                        <span>ラウドネス測定中...</span>
-                                      </div>
-                                    ) : loudnessErrors[media.id] || media.loudnessError ? (
-                                      <div className="error-indicator">
-                                        <span>測定エラー</span>
-                                      </div>
-                                    ) : (
-                                      <div className="waiting-indicator">
-                                        <span>ラウドネス情報を取得中...</span>
-                                      </div>
-                                    )}
+                                  <div className="thumbnail-placeholder">
+                                    {media.type === 'video' ? '🎬' : '🖼️'}
                                   </div>
                                 )}
                               </div>
+                              <div className="media-info">
+                                <div className="media-name">{media.name}</div>
+                                <div className="media-details">
+                                  <span className="media-type">{media.type === 'video' ? '動画' : '画像'}</span>
+                                  {media.duration && <span className="media-duration">{formatDuration(media.duration)}</span>}
+                                  <span className="media-size">{formatFileSize(media.size)}</span>
+                                </div>
+                                
+                                {/* ラウドネス情報の表示 */}
+                                <div className="media-loudness">
+                                  {media.loudnessInfo ? (
+                                    <div className="loudness-info">
+                                      <div className="loudness-value">
+                                        現在: {formatLoudness(media.loudnessInfo.inputIntegratedLoudness)}
+                                        {media.loudnessInfo.lufsGain !== undefined && (
+                                          <span className={media.loudnessInfo.lufsGain > 0 ? 'gain-positive' : 'gain-negative'}>
+                                            {media.loudnessInfo.lufsGain > 0 ? '+' : ''}{media.loudnessInfo.lufsGain.toFixed(1)}dB
+                                          </span>
+                                        )}
+                                      </div>
+                                      <div className="loudness-controls">
+                                        <label className="toggle-label">
+                                          <input
+                                            type="checkbox"
+                                            checked={media.loudnessNormalization !== false}
+                                            onChange={(e) => handleToggleLoudnessNormalization(media, e)}
+                                            onClick={(e) => e.stopPropagation()}
+                                          />
+                                          <span>-14 LUFS適用</span>
+                                        </label>
+                                      </div>
+                                    </div>
+                                  ) : (
+                                    <div className="loudness-status">
+                                      {media.isMeasuringLoudness ? (
+                                        <div className="measuring-indicator">
+                                          <span className="spinner"></span>
+                                          <span>ラウドネス測定中...</span>
+                                        </div>
+                                      ) : loudnessErrors[media.id] || media.loudnessError ? (
+                                        <div className="error-indicator">
+                                          <span>測定エラー</span>
+                                        </div>
+                                      ) : (
+                                        <div className="waiting-indicator">
+                                          <span>ラウドネス情報を取得中...</span>
+                                        </div>
+                                      )}
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
                             </div>
-                          </div>
-                        )}
-                      </Draggable>
-                    );
-                  })}
+                          )}
+                        </Draggable>
+                      );
+                    })}
                   {provided.placeholder}
                 </div>
               )}

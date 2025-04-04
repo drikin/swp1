@@ -147,6 +147,47 @@ UI	Electron + HTML/CSS/JS（将来的にVue/React）
   - Cmd/Ctrl+A（素材追加）
 - 以後のコード改変では既存のショートカット機能を維持し、デグレードさせないこと
 
+✅ サムネイル表示とファイルサイズ表示の問題解決（2025-04-04）
+- メディアファイルのサムネイル生成と表示機能の完全実装
+- ファイルサイズの正確な表示機能の実装
+- ElectronのIPC通信における重要な修正:
+  - preload.jsでのサムネイル生成APIの公開
+  - main.jsでのサムネイル生成関数の強化
+  - 複数のパラメータ形式に対応するAPIの柔軟な設計
+- TimelinePaneコンポーネントの機能強化:
+  - ドラッグ＆ドロップ機能の実装:
+    ```typescript
+    const handleDrop = async (e: DragEvent) => {
+      e.preventDefault();
+      e.stopPropagation();
+      setIsDragging(false);
+      
+      // ファイルのドロップ処理
+      if (e.dataTransfer && e.dataTransfer.files && e.dataTransfer.files.length > 0) {
+        const filePaths: string[] = [];
+        for (let i = 0; i < e.dataTransfer.files.length; i++) {
+          const file = e.dataTransfer.files[i] as ElectronFile;
+          if (file.path) {
+            filePaths.push(file.path);
+          }
+        }
+        
+        // ドロップされたファイルパスを直接処理
+        if (filePaths.length > 0 && onDropFiles) {
+          await onDropFiles(filePaths);
+        }
+      }
+    };
+    ```
+  - サムネイル表示とラウドネス測定の連携
+  - イベントベースのサムネイル更新メカニズム
+  - 詳細なデバッグロギングの実装
+  
+- 開発時の教訓:
+  - Electronアプリにおけるプリロードスクリプトの重要性
+  - IPC通信の設計とデバッグ手法
+  - レンダラープロセスとメインプロセス間のデータ受け渡しのベストプラクティス
+
 📋 次のステップ (フェーズ3&4の残り実装)
 - ラウドネス正規化機能の実装
 - クロスフェード結合機能の実装

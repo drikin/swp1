@@ -96,30 +96,57 @@ const SUPPORTED_EXTENSIONS = {
 // サムネイルを生成する関数
 async function generateThumbnail(filePath, fileId) {
   try {
+    console.log('サムネイル生成開始:', filePath, 'ID:', fileId);
+    
+    // ファイルパスの検証
+    if (!filePath || typeof filePath !== 'string') {
+      console.error('無効なファイルパス:', filePath);
+      return null;
+    }
+    
+    // ファイルの存在確認
+    if (!fs.existsSync(filePath)) {
+      console.error('ファイルが存在しません:', filePath);
+      return null;
+    }
+    
+    // IDの検証
+    if (!fileId) {
+      // IDが提供されていない場合は、ファイル名からIDを生成
+      fileId = `file-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+      console.log('IDが提供されていないため新しいIDを生成:', fileId);
+    }
+    
     const ext = path.extname(filePath).toLowerCase();
     // サムネイルを一時ディレクトリに保存
     const thumbnailPath = path.join(tempDir, `thumbnail-${fileId}.jpg`);
+    console.log('サムネイル保存先:', thumbnailPath);
     
     // 動画と画像で異なる処理
     if (['.mp4', '.mov', '.avi', '.webm', '.mkv', '.mts', '.m2ts'].includes(ext)) {
+      console.log('動画ファイルからサムネイルを生成します');
       // 動画ファイルの場合
       await runFFmpegCommand([
+        '-ss', '00:00:01',
         '-i', filePath,
-        '-ss', '00:00:01',        // 1秒目のフレームを取得
-        '-vframes', '1',          // 1フレームのみ
-        '-vf', 'scale=120:-1',    // 幅120pxに変換
-        '-y',                     // 既存ファイルを上書き
+        '-vframes', '1',
+        '-q:v', '2',
         thumbnailPath
       ]);
-    } else if (['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.webp'].includes(ext)) {
+      
+      console.log('FFmpegコマンド完了、サムネイルファイルチェック:', fs.existsSync(thumbnailPath));
+    } else if (['.jpg', '.jpeg', '.png', '.webp', '.gif'].includes(ext)) {
+      console.log('画像ファイルからサムネイルを生成します');
       // 画像ファイルの場合
       await runFFmpegCommand([
         '-i', filePath,
-        '-vf', 'scale=120:-1',    // 幅120pxに変換
-        '-y',                     // 既存ファイルを上書き
+        '-vf', 'scale=320:-1',
         thumbnailPath
       ]);
+      
+      console.log('FFmpegコマンド完了、サムネイルファイルチェック:', fs.existsSync(thumbnailPath));
     } else {
+      console.log('サポートされていないファイル形式:', ext);
       return null; // サポートされていない形式
     }
     
@@ -128,15 +155,24 @@ async function generateThumbnail(filePath, fileId) {
       const imageBuffer = fs.readFileSync(thumbnailPath);
       if (imageBuffer.length > 0) {
         const base64Data = imageBuffer.toString('base64');
+        console.log('サムネイル生成成功、Base64データ長:', base64Data.length);
+        
         // サムネイル生成に成功したことをレンダラープロセスに通知
         if (mainWindow) {
+          console.log('サムネイル生成通知送信 ID:', fileId);
           mainWindow.webContents.send('thumbnail-generated', {
             id: fileId,
             thumbnail: `data:image/jpeg;base64,${base64Data}`
           });
+        } else {
+          console.error('mainWindowが利用できません');
         }
         return `data:image/jpeg;base64,${base64Data}`;
+      } else {
+        console.error('サムネイル画像バッファが空です');
       }
+    } else {
+      console.error('サムネイルファイルが生成されませんでした:', thumbnailPath);
     }
     
     return null;
@@ -326,6 +362,28 @@ function getFilesRecursively(dir) {
 // FFmpegコマンドを実行する関数
 function runFFmpegCommand(args) {
   return new Promise((resolve, reject) => {
+    // 無効な引数チェック
+    if (!args || args.length < 2) {
+      console.error('FFmpeg: 引数が不足しています');
+      return reject(new Error('Invalid FFmpeg arguments'));
+    }
+    
+    // 入力ファイルパスのチェック（通常-iの次の引数がファイルパス）
+    const inputIndex = args.indexOf('-i');
+    if (inputIndex !== -1 && inputIndex + 1 < args.length) {
+      const filePath = args[inputIndex + 1];
+      if (!filePath || filePath === 'undefined' || filePath === 'null') {
+        console.error('FFmpeg: 無効なファイルパス:', filePath);
+        return reject(new Error('Invalid file path for FFmpeg'));
+      }
+      
+      // ファイルが存在するか確認（入力ファイルの場合のみ）
+      if (!filePath.startsWith('pipe:') && !fs.existsSync(filePath)) {
+        console.error('FFmpeg: 入力ファイルが存在しません:', filePath);
+        return reject(new Error(`Input file not found: ${filePath}`));
+      }
+    }
+    
     console.log('FFmpeg実行:', args.join(' '));
     
     // より大きなバッファサイズを確保して「stdout/stderr maxBuffer exceeded」を防止
@@ -402,6 +460,28 @@ function runFFmpegCommand(args) {
 // FFprobeコマンドを実行する関数（メタデータ取得用）
 function runFFprobeCommand(args) {
   return new Promise((resolve, reject) => {
+    // 無効なパス引数をチェック
+    if (!args || args.length < 2) {
+      console.error('FFprobe: 引数が不足しています');
+      return reject(new Error('Invalid FFprobe arguments'));
+    }
+
+    // inputファイルパスのチェック（通常-iの次の引数がファイルパス）
+    const inputIndex = args.indexOf('-i');
+    if (inputIndex !== -1 && inputIndex + 1 < args.length) {
+      const filePath = args[inputIndex + 1];
+      if (!filePath || filePath === 'undefined' || filePath === 'null') {
+        console.error('FFprobe: 無効なファイルパス:', filePath);
+        return reject(new Error('Invalid file path for FFprobe'));
+      }
+      
+      // ファイルが存在するか確認
+      if (!fs.existsSync(filePath)) {
+        console.error('FFprobe: ファイルが存在しません:', filePath);
+        return reject(new Error(`File not found: ${filePath}`));
+      }
+    }
+
     console.log('FFprobe実行:', args.join(' '));
     const process = spawn('ffprobe', args, {
       maxBuffer: 10 * 1024 * 1024  // 10MBのバッファ
@@ -522,7 +602,30 @@ ipcMain.handle('check-ffmpeg', async () => {
 
 // メディア情報を取得する関数
 async function getMediaInfo(filePath) {
+  // パスの検証
+  if (!filePath || typeof filePath !== 'string') {
+    console.error('無効なファイルパス:', filePath);
+    throw new Error('Invalid file path');
+  }
+  
+  // ファイルの存在確認
+  if (!fs.existsSync(filePath)) {
+    console.error('ファイルが存在しません:', filePath);
+    throw new Error(`File not found: ${filePath}`);
+  }
+  
   try {
+    // ファイルの基本情報を取得
+    const stats = fs.statSync(filePath);
+    const fileId = `file-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+    const fileObj = {
+      id: fileId,
+      name: path.basename(filePath),
+      path: filePath,
+      size: stats.size
+    };
+    
+    // フォーマット情報を抽出
     const args = [
       '-v', 'error',
       '-show_entries', 'format=duration,bit_rate,size:stream=codec_type,codec_name,width,height,sample_rate,channels',
@@ -535,13 +638,17 @@ async function getMediaInfo(filePath) {
     // JSON解析
     const info = JSON.parse(stdout);
     let result = {
+      ...fileObj, // 基本情報を統合
       duration: 0,
       video: false,
       audio: false,
       width: 0,
       height: 0,
-      format: ''
+      format: '',
+      size: stats.size // 確実にファイルサイズを設定
     };
+    
+    console.log('メディア情報取得:', filePath, '基本情報:', { id: fileId, size: stats.size });
     
     // フォーマット情報を抽出
     if (info.format) {
@@ -550,6 +657,10 @@ async function getMediaInfo(filePath) {
       }
       if (info.format.format_name) {
         result.format = info.format.format_name;
+      }
+      // format.sizeがある場合は上書き
+      if (info.format.size) {
+        result.size = parseInt(info.format.size, 10) || stats.size;
       }
     }
     
@@ -584,6 +695,33 @@ async function getMediaInfo(filePath) {
 // IPC通信でメディア情報取得を提供
 ipcMain.handle('get-media-info', async (event, filePath) => {
   return await getMediaInfo(filePath);
+});
+
+// IPC通信でサムネイル生成を提供
+ipcMain.handle('generate-thumbnail', async (event, args) => {
+  console.log('サムネイル生成リクエスト受信:', args);
+  let filePath, fileId;
+  
+  // 引数の形式をチェック
+  if (typeof args === 'string') {
+    // 文字列の場合はファイルパスとして扱う
+    filePath = args;
+    fileId = null;
+  } else if (args && typeof args === 'object') {
+    // オブジェクトの場合はプロパティから取得
+    filePath = args.filePath || args.path;
+    fileId = args.fileId || args.id;
+  } else {
+    console.error('無効なサムネイル生成引数:', args);
+    return null;
+  }
+  
+  if (!filePath) {
+    console.error('サムネイル生成：ファイルパスがありません');
+    return null;
+  }
+  
+  return await generateThumbnail(filePath, fileId);
 });
 
 // LUFSを測定キューとキャッシュ
@@ -659,6 +797,18 @@ async function processLoudnessQueue() {
 // LUFS測定関数 (ITU-R BS.1770-3準拠) - 内部実装
 async function measureLoudnessInternal(filePath) {
   try {
+    // パスの検証
+    if (!filePath || typeof filePath !== 'string') {
+      console.error('無効なファイルパスでのLUFS測定:', filePath);
+      throw new Error('Invalid file path for loudness measurement');
+    }
+    
+    // ファイルの存在確認
+    if (!fs.existsSync(filePath)) {
+      console.error('存在しないファイルでのLUFS測定:', filePath);
+      throw new Error(`File not found: ${filePath}`);
+    }
+    
     console.log('LUFSの測定開始:', filePath);
     
     // メディア情報を取得して動画の長さを確認
@@ -730,14 +880,25 @@ async function measureLoudnessInternal(filePath) {
 // 外部公開用のLUFS測定関数（キューベースのラッパー）
 async function measureLoudness(filePathWithId) {
   return new Promise((resolve, reject) => {
+    // パラメータのチェック
+    if (!filePathWithId || typeof filePathWithId !== 'string') {
+      console.error('無効なファイルパス/ID形式:', filePathWithId);
+      return reject(new Error('Invalid file path or ID format'));
+    }
+    
     // ファイルIDとパスを分離
     const [fileId, filePath] = filePathWithId.includes('|') 
       ? filePathWithId.split('|')
       : [null, filePathWithId];
     
-    if (!filePath) {
-      return reject(new Error('無効なファイルパス'));
+    // パスの検証
+    if (!filePath || typeof filePath !== 'string' || filePath === 'undefined' || filePath === 'null') {
+      console.error('ラウドネス測定：無効なファイルパス:', filePath);
+      return reject(new Error('Invalid file path for loudness measurement'));
     }
+    
+    // ファイルの存在確認は非同期処理で実行されるため、ここではスキップし、
+    // 内部実装（measureLoudnessInternal）でチェックする
 
     // キューに追加
     loudnessQueue.push({
@@ -756,13 +917,19 @@ async function measureLoudness(filePathWithId) {
 // IPC通信でLUFSの測定を提供
 ipcMain.handle('measure-loudness', async (event, filePath) => {
   try {
+    // パスのチェック
+    if (!filePath || typeof filePath !== 'string') {
+      console.error('無効なファイルパスでのLUFS測定リクエスト:', filePath);
+      throw new Error('Invalid file path for loudness measurement request');
+    }
+    
     return await measureLoudness(filePath);
   } catch (error) {
     console.error('ラウドネス測定エラー:', error);
     
     // エラーイベントを発行
     // ファイルIDを含む引数形式を想定
-    const fileId = filePath.includes('|') ? filePath.split('|')[0] : null;
+    const fileId = filePath && filePath.includes && filePath.includes('|') ? filePath.split('|')[0] : null;
     if (mainWindow && fileId) {
       mainWindow.webContents.send('loudness-error', { id: fileId });
     }

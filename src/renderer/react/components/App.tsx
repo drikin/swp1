@@ -202,39 +202,26 @@ const App: React.FC = () => {
       setIsDragging(false);
     };
 
-    const handleDrop = async (e: DragEvent) => {
+    const handleDrop = (e: DragEvent) => {
       e.preventDefault();
       e.stopPropagation();
       setIsDragging(false);
       
-      if (!e.dataTransfer || !e.dataTransfer.files || e.dataTransfer.files.length === 0) return;
-      
-      const filePaths: string[] = [];
-      for (let i = 0; i < e.dataTransfer.files.length; i++) {
-        const file = e.dataTransfer.files[i] as ElectronFile;
-        if (file.path) {
-          filePaths.push(file.path);
-        }
-      }
-      
-      if (filePaths.length > 0 && window.api) {
-        try {
-          // ファイルパスを直接渡して処理（ダイアログをスキップ）
-          const files = await window.api.openFileDialog(filePaths);
-          if (files && files.length > 0) {
-            setMediaFiles(prev => [...prev, ...files]);
-            setStatus(`${files.length}件のファイルを追加しました`);
-            
-            // 追加されたファイルについて自動的にラウドネス測定を開始
-            files.forEach(file => {
-              if (file.type === 'video' || file.type === 'audio') {
-                startLoudnessMeasurement(file);
-              }
-            });
+      // ドロップされたファイルを取得
+      if (e.dataTransfer?.files && e.dataTransfer.files.length > 0) {
+        // 添付されたファイルを処理
+        const filePaths: string[] = [];
+        Array.from(e.dataTransfer.files).forEach((file) => {
+          // ElectronFileとして扱う
+          const electronFile = file as unknown as ElectronFile;
+          if (electronFile.path) {
+            filePaths.push(electronFile.path);
           }
-        } catch (error) {
-          console.error('ファイル追加エラー:', error);
-          setStatus('ファイル追加に失敗しました');
+        });
+        
+        // ファイルが有効な場合は処理を続行
+        if (filePaths.length > 0) {
+          handleDropFiles(filePaths);
         }
       }
     };
@@ -283,6 +270,12 @@ const App: React.FC = () => {
   const startLoudnessMeasurement = async (media: any) => {
     if (!window.api) return;
     
+    // メディアとパスの検証
+    if (!media || !media.id || !media.path) {
+      console.error('ラウドネス測定エラー: 無効なメディアまたはパス', media);
+      return;
+    }
+    
     try {
       // 測定中フラグを設定
       setMediaFiles(prev => prev.map(m => 
@@ -309,7 +302,7 @@ const App: React.FC = () => {
       setMediaFiles(prev => prev.map(m => 
         m.id === media.id ? { ...m, isMeasuringLoudness: false, loudnessError: true } : m
       ));
-      setStatus(`${media.name}のラウドネス測定に失敗しました`);
+      setStatus(`${media.name || 'メディア'}のラウドネス測定に失敗しました`);
     }
   };
 
@@ -329,27 +322,128 @@ const App: React.FC = () => {
     }
   }, []);
 
+  // サムネイル生成用のヘルパー関数
+  const generateThumbnailForMedia = (media: any) => {
+    if (!window.api || !media || !media.id || !media.path) {
+      return;
+    }
+    
+    // API が利用可能かどうかを確認（ネストされたプロパティアクセスを避ける）
+    if (typeof window.api.generateThumbnail !== 'function') {
+      console.error('generateThumbnail 関数が利用できません');
+      return;
+    }
+    
+    console.log('サムネイル生成要求:', media.id, media.path);
+    
+    // メディアパスとIDを個別に渡す
+    try {
+      window.api.generateThumbnail(media.path, media.id)
+        .then((result: any) => {
+          if (result) {
+            console.log('サムネイル生成成功:', media.id);
+          }
+        })
+        .catch((error: Error) => {
+          console.error('サムネイル生成エラー:', media.id, error);
+        });
+    } catch (error) {
+      console.error('サムネイル生成の呼び出しエラー:', error);
+    }
+  };
+  
+  // コンポーネントがマウントされたときに既存のメディアファイルのサムネイルを生成
+  useEffect(() => {
+    if (mediaFiles.length > 0 && window.api) {
+      // API が利用可能かどうかを確認
+      if (typeof window.api.generateThumbnail === 'function') {
+        console.log('既存メディアファイルのサムネイル生成開始:', mediaFiles.length, '件');
+        mediaFiles.forEach(media => {
+          generateThumbnailForMedia(media);
+        });
+      }
+    }
+  }, [mediaFiles]);
+
   // ドロップしたファイルを直接追加する処理
   const handleDropFiles = async (filePaths: string[]) => {
-    if (filePaths.length > 0 && window.api) {
+    // 無効なパスを除外
+    const validPaths = filePaths.filter(path => path && typeof path === 'string');
+    
+    if (validPaths.length === 0) {
+      console.error('有効なファイルパスがありません');
+      setStatus('有効なファイルがドロップされませんでした');
+      return;
+    }
+    
+    const newFiles: any[] = [];
+    
+    // ローディング状態を設定
+    setStatus('ファイルを処理中...');
+    
+    for (const path of validPaths) {
       try {
-        // ファイルパスを直接渡して処理（ダイアログをスキップ）
-        const files = await window.api.openFileDialog(filePaths);
-        if (files && files.length > 0) {
-          setMediaFiles(prev => [...prev, ...files]);
-          setStatus(`${files.length}件のファイルを追加しました`);
+        // メディア情報を取得（ファイルサイズ、ID情報を含む）
+        const mediaInfo = await window.api.getMediaInfo(path);
+        if (mediaInfo) {
+          // main.jsから返されたIDとサイズをそのまま使用
+          console.log('メディア情報を取得:', mediaInfo);
           
-          // 追加されたファイルについて自動的にラウドネス測定を開始
-          files.forEach(file => {
-            if (file.type === 'video' || file.type === 'audio') {
-              startLoudnessMeasurement(file);
-            }
-          });
+          // 必須プロパティが揃っているか確認（念のため）
+          if (!mediaInfo.id) {
+            mediaInfo.id = `file-${Date.now()}-${Math.floor(Math.random() * 1000)}`;
+          }
+          
+          if (!mediaInfo.name) {
+            const fileName = path.split('/').pop() || 'unknown';
+            mediaInfo.name = fileName;
+          }
+          
+          if (!mediaInfo.path) {
+            mediaInfo.path = path;
+          }
+          
+          // タイプ情報を確認
+          if (!mediaInfo.type) {
+            mediaInfo.type = mediaInfo.video ? 'video' : (mediaInfo.audio ? 'audio' : 'unknown');
+          }
+          
+          // サイズが数値型であることを確認
+          if (typeof mediaInfo.size !== 'number') {
+            const sizeNum = parseInt(mediaInfo.size, 10);
+            mediaInfo.size = isNaN(sizeNum) ? 0 : sizeNum;
+          }
+          
+          newFiles.push(mediaInfo);
         }
       } catch (error) {
-        console.error('ファイル追加エラー:', error);
-        setStatus('ファイル追加に失敗しました');
+        console.error('Media info retrieval failed:', error);
       }
+    }
+    
+    if (newFiles.length > 0) {
+      // 新しいファイルを追加
+      setMediaFiles(prev => [...prev, ...newFiles]);
+      
+      // メディア情報のログ出力（デバッグ用）
+      console.log('追加されたメディア:', newFiles);
+      
+      // 明示的にサムネイル生成とラウドネス測定を呼び出し
+      newFiles.forEach(media => {
+        if (media.id && media.path) {
+          // サムネイル生成を要求
+          generateThumbnailForMedia(media);
+          
+          // ラウドネス測定を開始
+          startLoudnessMeasurement(media);
+        } else {
+          console.error('無効なメディアオブジェクト：IDまたはパスがありません', media);
+        }
+      });
+      
+      setStatus(`${newFiles.length}個のファイルを追加しました`);
+    } else {
+      setStatus('サポートされていないファイル形式です');
     }
   };
 

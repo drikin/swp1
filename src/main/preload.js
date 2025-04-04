@@ -22,6 +22,7 @@ try {
     'check-ffmpeg',
     'get-media-info',
     'generate-waveform',
+    'generate-thumbnail',
     'export-combined-video',
     'measure-loudness'
   ];
@@ -81,6 +82,19 @@ try {
     checkFFmpeg: () => ipcRenderer.invoke('check-ffmpeg'),
     getMediaInfo: (filePath) => ipcRenderer.invoke('get-media-info', filePath),
     generateWaveform: (filePath, outputPath) => ipcRenderer.invoke('generate-waveform', filePath, outputPath),
+    generateThumbnail: (pathOrOptions, fileId) => {
+      // App.tsxからは(path, id)の形式で呼び出されるため、両方の形式に対応
+      if (typeof pathOrOptions === 'string') {
+        // 個別のパラメータとして呼び出された場合
+        return ipcRenderer.invoke('generate-thumbnail', { 
+          filePath: pathOrOptions, 
+          fileId: fileId 
+        });
+      } else {
+        // オブジェクトとして呼び出された場合
+        return ipcRenderer.invoke('generate-thumbnail', pathOrOptions);
+      }
+    },
     exportCombinedVideo: (options) => ipcRenderer.invoke('export-combined-video', options),
     measureLoudness: (filePath) => ipcRenderer.invoke('measure-loudness', filePath),
     

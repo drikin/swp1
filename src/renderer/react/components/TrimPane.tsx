@@ -157,31 +157,41 @@ const TrimPane: React.FC<TrimPaneProps> = ({
 
   // Fetch waveform data when selectedMedia changes
   useEffect(() => {
-    if (selectedMedia?.path && window.api) {
-      setIsLoadingWaveform(true);
-      setWaveformData(null); // Clear previous waveform
-      window.api.generateWaveform(selectedMedia.path)
-        .then(data => {
-          if (data && data.success && Array.isArray(data.waveform)) {
-            setWaveformData(data.waveform);
-            // Load initial trim points AFTER waveform is loaded
-            setInPoint(selectedMedia.trimStart ?? null);
-            setOutPoint(selectedMedia.trimEnd ?? null);
-          } else {
-            console.error("Failed to get waveform data:", data?.error || 'Unknown error');
-            setWaveformData([]); 
-            setInPoint(null); // Clear points on error
+    setIsLoadingWaveform(true);
+
+    if (selectedMedia && selectedMedia.path && window.api) {
+      // 対象メディアのパスを取得
+      const filePath = selectedMedia.path;
+      
+      // パスが有効な場合のみ波形生成を実行
+      if (filePath) {
+        window.api.generateWaveform(filePath)
+          .then((data: { waveform: number[] }) => {
+            // データがある場合は波形を設定
+            if (data && data.waveform) {
+              setWaveformData(data.waveform);
+              
+              // 既存のトリム設定があれば復元
+              if (selectedMedia.trimStart !== undefined) {
+                setInPoint(selectedMedia.trimStart);
+              }
+              if (selectedMedia.trimEnd !== undefined) {
+                setOutPoint(selectedMedia.trimEnd);
+              }
+            }
+            setIsLoadingWaveform(false);
+          })
+          .catch((err: Error) => {
+            console.error("Error generating waveform:", err);
+            setWaveformData([]);
+            setInPoint(null);
             setOutPoint(null);
-          }
-          setIsLoadingWaveform(false);
-        })
-        .catch(err => {
-          console.error("Error generating waveform:", err);
-          setWaveformData([]);
-          setInPoint(null);
-          setOutPoint(null);
-          setIsLoadingWaveform(false);
-        });
+            setIsLoadingWaveform(false);
+          });
+      } else {
+        console.error("Invalid file path for waveform generation");
+        setIsLoadingWaveform(false);
+      }
     } else {
         // Clear waveform and points if no media selected
         setWaveformData(null);
