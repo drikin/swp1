@@ -81,11 +81,11 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
         }
       };
 
-      window.api.on('loudness-measured', handleLoudnessMeasured);
+      const removeListener = window.api.on('loudness-measured', handleLoudnessMeasured);
 
       return () => {
-        if (window.api && window.api.off) {
-          window.api.off('loudness-measured', handleLoudnessMeasured);
+        if (removeListener) {
+          removeListener();
         }
       };
     }
