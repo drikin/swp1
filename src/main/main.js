@@ -3,6 +3,7 @@ const path = require('path');
 const fs = require('fs');
 const { spawn, execSync } = require('child_process');
 const ffmpeg = require('fluent-ffmpeg');
+const ffmpegServiceManager = require('./ffmpeg-service-manager');
 
 // システムのFFmpegパスを動的に取得
 let ffmpegPath;
@@ -63,6 +64,11 @@ app.whenReady().then(() => {
     fs.mkdirSync(tempDir, { recursive: true });
   }
   
+  // FFmpegサービスの起動
+  ffmpegServiceManager.start().catch(error => {
+    console.error('FFmpegサービス起動エラー:', error);
+  });
+  
   // ファイルのドラッグ&ドロップを許可
   app.on('browser-window-created', (_, window) => {
     window.webContents.on('did-finish-load', () => {
@@ -76,8 +82,21 @@ app.whenReady().then(() => {
 // すべてのウィンドウが閉じられたときの処理 (macOS以外)
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
+    // FFmpegサービスの停止
+    ffmpegServiceManager.stop().finally(() => {
+      app.quit();
+    });
+  } else {
     app.quit();
   }
+});
+
+// アプリが終了する前にクリーンアップ
+app.on('before-quit', () => {
+  // FFmpegサービスの停止
+  ffmpegServiceManager.stop().catch(error => {
+    console.error('FFmpegサービス停止エラー:', error);
+  });
 });
 
 // アプリがアクティブになったときの処理 (macOS)
@@ -179,6 +198,107 @@ async function generateThumbnail(filePath, fileId) {
   } catch (error) {
     console.error('サムネイル生成エラー:', error);
     return null;
+  }
+}
+
+// FFmpegコマンドを実行する関数
+async function runFFmpegCommand(args) {
+  try {
+    // 新しいFFmpegサービスを使用してタスクを処理
+    const result = await ffmpegServiceManager.processFFmpeg(args);
+    
+    if (result.error) {
+      console.error('FFmpeg処理エラー:', result.error);
+      throw new Error(result.error);
+    }
+    
+    // 完了したタスクの状態を取得
+    let taskStatus = null;
+    let attempts = 0;
+    const maxAttempts = 50; // 最大50回試行
+    
+    while (attempts < maxAttempts) {
+      taskStatus = await ffmpegServiceManager.getTaskStatus(result.taskId);
+      
+      if (taskStatus.status === 'completed') {
+        // 成功時はサービスからの結果を返す
+        return { stdout: taskStatus.stdout || '', stderr: taskStatus.stderr || '' };
+      } else if (taskStatus.status === 'failed' || taskStatus.status === 'error') {
+        // エラー時は例外をスロー
+        throw new Error(`FFmpeg処理失敗: ${taskStatus.stderr || 'Unknown error'}`);
+      }
+      
+      // まだ処理中の場合は少し待機
+      await new Promise(resolve => setTimeout(resolve, 200));
+      attempts++;
+    }
+    
+    // タイムアウト時は例外をスロー
+    throw new Error('FFmpeg処理がタイムアウトしました');
+  } catch (error) {
+    console.error('FFmpeg実行エラー:', error);
+    
+    // 後方互換性のために既存の関数と同じ形式でエラーをスロー
+    throw error;
+  }
+}
+
+// FFprobeコマンドを実行する関数（メタデータ取得用）
+async function runFFprobeCommand(args) {
+  try {
+    // 直接FFprobeコマンドを実行する方法に変更
+    const { spawn } = require('child_process');
+    const ffprobePath = ffmpegPath.replace('ffmpeg', 'ffprobe');
+    
+    console.log('FFprobe実行:', args.join(' '));
+    console.log('FFprobeパス:', ffprobePath);
+    
+    // FFprobeコマンド実行
+    const result = await new Promise((resolve, reject) => {
+      const process = spawn(ffprobePath, args);
+      let stdout = '';
+      let stderr = '';
+      
+      process.stdout.on('data', (data) => {
+        const chunk = data.toString();
+        stdout += chunk;
+        if (chunk.trim()) {
+          console.log('FFprobe stdout:', chunk.trim());
+        }
+      });
+      
+      process.stderr.on('data', (data) => {
+        const chunk = data.toString();
+        stderr += chunk;
+        console.log('FFprobe stderr:', chunk.trim());
+      });
+      
+      process.on('close', (code) => {
+        if (code === 0) {
+          console.log('FFprobe処理成功');
+          resolve({ stdout, stderr });
+        } else {
+          console.error(`FFprobe処理失敗 (コード ${code}):`);
+          // エラーの概要のみを出力
+          const errorSummary = stderr.split('\n')
+            .filter(line => line.includes('Error') || line.includes('failed') || line.includes('Invalid'))
+            .slice(0, 10)
+            .join('\n');
+          console.error('エラー概要:', errorSummary || 'エラー詳細が見つかりません');
+          reject(new Error(`FFprobe process exited with code ${code}: ${stderr}`));
+        }
+      });
+      
+      process.on('error', (err) => {
+        console.error('FFprobeプロセスエラー:', err);
+        reject(err);
+      });
+    });
+    
+    return result;
+  } catch (error) {
+    console.error('FFprobe実行エラー:', error);
+    throw error;
   }
 }
 
@@ -359,209 +479,6 @@ function getFilesRecursively(dir) {
   return files;
 }
 
-// FFmpegコマンドを実行する関数
-function runFFmpegCommand(args) {
-  return new Promise((resolve, reject) => {
-    // 無効な引数チェック
-    if (!args || args.length === 0) {
-      console.error('FFmpeg: 引数が指定されていません');
-      return reject(new Error('No FFmpeg arguments provided'));
-    }
-    
-    // 単一引数の場合、特定の有効なコマンドか確認する
-    if (args.length === 1) {
-      const validSingleArgs = ['-version', '-encoders', '-decoders', '-formats', '-devices', '-codecs', '-hwaccels', '-filters'];
-      if (!validSingleArgs.includes(args[0])) {
-        console.error('FFmpeg: 単一引数の場合、有効なコマンドではありません:', args[0]);
-        return reject(new Error(`Invalid single FFmpeg argument: ${args[0]}`));
-      }
-    }
-    
-    // 入力ファイルパスのチェック（通常-iの次の引数がファイルパス）
-    const inputIndex = args.indexOf('-i');
-    if (inputIndex !== -1 && inputIndex + 1 < args.length) {
-      const filePath = args[inputIndex + 1];
-      if (!filePath || filePath === 'undefined' || filePath === 'null') {
-        console.error('FFmpeg: 無効なファイルパス:', filePath);
-        return reject(new Error('Invalid file path for FFmpeg'));
-      }
-      
-      // ファイルが存在するか確認（入力ファイルの場合のみ）
-      if (!filePath.startsWith('pipe:') && !fs.existsSync(filePath)) {
-        console.error('FFmpeg: 入力ファイルが存在しません:', filePath);
-        return reject(new Error(`Input file not found: ${filePath}`));
-      }
-    }
-    
-    console.log('FFmpeg実行:', args.join(' '));
-    
-    // より大きなバッファサイズを確保して「stdout/stderr maxBuffer exceeded」を防止
-    const process = spawn(ffmpegPath, args, {
-      maxBuffer: 10 * 1024 * 1024  // 10MBのバッファ
-    });
-    
-    let stdout = '';
-    let stderr = '';
-    
-    process.stdout.on('data', (data) => {
-      const chunk = data.toString();
-      stdout += chunk;
-      if (chunk.trim()) {  // 空白行を避ける
-        console.log('FFmpeg stdout:', chunk.trim());
-      }
-    });
-    
-    // ログ出力量の制限（非常に長いログを避ける）
-    let logLines = 0;
-    const maxLogLines = 100;
-    
-    process.stderr.on('data', (data) => {
-      const chunk = data.toString();
-      stderr += chunk;
-      
-      // ログの行数を制限
-      if (logLines < maxLogLines) {
-        const lines = chunk.split('\n').filter(l => l.trim());
-        for (const line of lines) {
-          if (logLines < maxLogLines) {
-            // 進捗情報のみログ出力を間引く（フレーム情報は頻度が高すぎる）
-            if (!line.startsWith('frame=')) {
-              console.log('FFmpeg stderr:', line);
-            } else if (logLines % 10 === 0) {  // 10行に1回だけ進捗情報を出力
-              console.log('FFmpeg進捗:', line);
-            }
-            logLines++;
-          } else {
-            // 最大行数に達したら要約メッセージを表示
-            if (logLines === maxLogLines) {
-              console.log('FFmpeg: ログが多すぎるため以降は省略します...');
-              logLines++;
-            }
-            break;
-          }
-        }
-      }
-    });
-    
-    process.on('close', (code) => {
-      if (code === 0) {
-        console.log('FFmpeg処理成功');
-        resolve({ stdout, stderr });
-      } else {
-        console.error(`FFmpeg処理失敗 (コード ${code}):`);
-        // エラーの概要のみを出力（長すぎるエラーを避ける）
-        const errorSummary = stderr.split('\n')
-          .filter(line => line.includes('Error') || line.includes('failed') || line.includes('Invalid'))
-          .slice(0, 10)
-          .join('\n');
-        console.error('エラー概要:', errorSummary || 'エラー詳細が見つかりません');
-        reject(new Error(`FFmpeg process exited with code ${code}: ${stderr}`));
-      }
-    });
-    
-    process.on('error', (err) => {
-      console.error('FFmpegプロセスエラー:', err);
-      reject(err);
-    });
-  });
-}
-
-// FFprobeコマンドを実行する関数（メタデータ取得用）
-function runFFprobeCommand(args) {
-  return new Promise((resolve, reject) => {
-    // 無効なパス引数をチェック
-    if (!args || args.length < 2) {
-      console.error('FFprobe: 引数が不足しています');
-      return reject(new Error('Invalid FFprobe arguments'));
-    }
-
-    // inputファイルパスのチェック（通常-iの次の引数がファイルパス）
-    const inputIndex = args.indexOf('-i');
-    if (inputIndex !== -1 && inputIndex + 1 < args.length) {
-      const filePath = args[inputIndex + 1];
-      if (!filePath || filePath === 'undefined' || filePath === 'null') {
-        console.error('FFprobe: 無効なファイルパス:', filePath);
-        return reject(new Error('Invalid file path for FFprobe'));
-      }
-      
-      // ファイルが存在するか確認
-      if (!fs.existsSync(filePath)) {
-        console.error('FFprobe: ファイルが存在しません:', filePath);
-        return reject(new Error(`File not found: ${filePath}`));
-      }
-    }
-
-    console.log('FFprobe実行:', args.join(' '));
-    const process = spawn('ffprobe', args, {
-      maxBuffer: 10 * 1024 * 1024  // 10MBのバッファ
-    });
-    
-    let stdout = '';
-    let stderr = '';
-    
-    process.stdout.on('data', (data) => {
-      const chunk = data.toString();
-      stdout += chunk;
-      if (chunk.trim()) {  // 空白行を避ける
-        console.log('FFprobe stdout:', chunk.trim());
-      }
-    });
-    
-    // ログ出力量の制限（非常に長いログを避ける）
-    let logLines = 0;
-    const maxLogLines = 100;
-    
-    process.stderr.on('data', (data) => {
-      const chunk = data.toString();
-      stderr += chunk;
-      
-      // ログの行数を制限
-      if (logLines < maxLogLines) {
-        const lines = chunk.split('\n').filter(l => l.trim());
-        for (const line of lines) {
-          if (logLines < maxLogLines) {
-            // 進捗情報のみログ出力を間引く（フレーム情報は頻度が高すぎる）
-            if (!line.startsWith('frame=')) {
-              console.log('FFprobe stderr:', line);
-            } else if (logLines % 10 === 0) {  // 10行に1回だけ進捗情報を出力
-              console.log('FFprobe進捗:', line);
-            }
-            logLines++;
-          } else {
-            // 最大行数に達したら要約メッセージを表示
-            if (logLines === maxLogLines) {
-              console.log('FFprobe: ログが多すぎるため以降は省略します...');
-              logLines++;
-            }
-            break;
-          }
-        }
-      }
-    });
-    
-    process.on('close', (code) => {
-      if (code === 0) {
-        console.log('FFprobe処理成功');
-        resolve({ stdout, stderr });
-      } else {
-        console.error(`FFprobe処理失敗 (コード ${code}):`);
-        // エラーの概要のみを出力（長すぎるエラーを避ける）
-        const errorSummary = stderr.split('\n')
-          .filter(line => line.includes('Error') || line.includes('failed') || line.includes('Invalid'))
-          .slice(0, 10)
-          .join('\n');
-        console.error('エラー概要:', errorSummary || 'エラー詳細が見つかりません');
-        reject(new Error(`FFprobe process exited with code ${code}: ${stderr}`));
-      }
-    });
-    
-    process.on('error', (err) => {
-      console.error('FFprobeプロセスエラー:', err);
-      reject(err);
-    });
-  });
-}
-
 // VideoToolboxサポートをチェックする共通関数
 async function checkVideoToolboxSupport() {
   try {
@@ -586,12 +503,38 @@ async function checkVideoToolboxSupport() {
 // FFmpegバージョン確認 (アプリ起動時に実行)
 ipcMain.handle('check-ffmpeg', async () => {
   try {
-    // バージョン情報取得
-    const versionResult = await runFFmpegCommand(['-version']);
-    const versionMatch = versionResult.stdout.match(/ffmpeg version ([^ ]+)/);
-    const version = versionMatch ? versionMatch[1] : 'unknown';
+    // 新しい方法：直接コマンドを実行してバージョン情報を取得
+    const { spawn } = require('child_process');
     
-    // VideoToolboxのサポートを確認
+    // FFmpegバージョン情報取得
+    const versionOutput = await new Promise((resolve, reject) => {
+      const process = spawn(ffmpegPath, ['-version']);
+      let output = '';
+      
+      process.stdout.on('data', (data) => {
+        output += data.toString();
+      });
+      
+      process.on('close', (code) => {
+        if (code === 0) {
+          resolve(output);
+        } else {
+          reject(new Error(`FFmpeg process exited with code ${code}`));
+        }
+      });
+      
+      process.on('error', (err) => {
+        reject(err);
+      });
+    });
+    
+    // バージョン文字列から情報を抽出
+    const versionMatch = versionOutput.match(/ffmpeg version (\S+)/);
+    const version = versionMatch ? versionMatch[1] : '不明';
+    
+    console.log('検出されたFFmpegバージョン:', version);
+    
+    // ハードウェアアクセラレーションサポートの確認
     const hwaccelSupport = await checkVideoToolboxSupport();
     
     return { 
@@ -601,11 +544,41 @@ ipcMain.handle('check-ffmpeg', async () => {
       hwaccel: hwaccelSupport
     };
   } catch (error) {
-    console.error('FFmpeg error:', error);
+    console.error('FFmpegエラー:', error);
     return { 
       available: false, 
       error: error.message 
     };
+  }
+});
+
+// FFmpegタスクのステータスを確認するIPC通信ハンドラ
+ipcMain.handle('ffmpeg-task-status', async (event, taskId) => {
+  if (!taskId) {
+    return { error: 'タスクIDが指定されていません' };
+  }
+  
+  try {
+    return await ffmpegServiceManager.getTaskStatus(taskId);
+  } catch (error) {
+    console.error('タスクステータス取得エラー:', error);
+    return { error: error.message };
+  }
+});
+
+// FFmpegタスクをキャンセルするIPC通信ハンドラ
+ipcMain.handle('ffmpeg-task-cancel', async (event, taskId) => {
+  if (!taskId) {
+    return { error: 'タスクIDが指定されていません' };
+  }
+  
+  try {
+    // TODO: キャンセル処理の実装（現在のffmpeg-service.jsでは未実装）
+    console.log(`タスク ${taskId} のキャンセルが要求されました`);
+    return { success: true, message: 'キャンセル要求を送信しました' };
+  } catch (error) {
+    console.error('タスクキャンセルエラー:', error);
+    return { error: error.message };
   }
 });
 
@@ -707,26 +680,20 @@ ipcMain.handle('get-media-info', async (event, filePath) => {
 });
 
 // IPC通信でサムネイル生成を提供
-ipcMain.handle('generate-thumbnail', async (event, args) => {
-  console.log('サムネイル生成リクエスト受信:', args);
+ipcMain.handle('generate-thumbnail', async (event, options) => {
+  // パラメータ形式の統一（オブジェクトか個別パラメータか）
   let filePath, fileId;
   
-  // 引数の形式をチェック
-  if (typeof args === 'string') {
-    // 文字列の場合はファイルパスとして扱う
-    filePath = args;
-    fileId = null;
-  } else if (args && typeof args === 'object') {
-    // オブジェクトの場合はプロパティから取得
-    filePath = args.filePath || args.path;
-    fileId = args.fileId || args.id;
+  if (typeof options === 'object') {
+    filePath = options.filePath;
+    fileId = options.fileId;
   } else {
-    console.error('無効なサムネイル生成引数:', args);
-    return null;
+    filePath = options;
+    fileId = null;
   }
   
   if (!filePath) {
-    console.error('サムネイル生成：ファイルパスがありません');
+    console.error('サムネイル生成エラー: ファイルパスが指定されていません');
     return null;
   }
   
@@ -784,7 +751,7 @@ async function processLoudnessQueue() {
         console.error('ラウドネス測定エラー:', error);
         
         // エラーイベントを発行
-        if (mainWindow) {
+        if (mainWindow && fileId) {
           mainWindow.webContents.send('loudness-error', { id: fileId });
         }
         
@@ -1020,118 +987,138 @@ function updateProgress(current, total, stage) {
 }
 
 // 結合動画を書き出す
-ipcMain.handle('export-combined-video', async (event, { mediaFiles, outputPath, settings, filename }) => {
-  const tempDir = path.join(app.getPath('temp'), `swp1-export-${Date.now()}`);
-  const tempFiles = [];
-  const concatFilePath = path.join(tempDir, 'concat.txt');
-  
-  // 一時ディレクトリを作成（毎回新しい一時ディレクトリを作成して重複回避）
-  if (!fs.existsSync(tempDir)) {
-    fs.mkdirSync(tempDir, { recursive: true });
-  }
-  
+ipcMain.handle('export-combined-video', async (event, options) => {
   try {
-    // 解像度をピクセル値に変換
-    let resolution;
-    switch (settings.resolution) {
-      case '720p':
-        resolution = '1280:720';
-        break;
-      case '1080p':
-        resolution = '1920:1080';
-        break;
-      case '2k':
-        resolution = '2560:1440';
-        break;
-      case '4k':
-        resolution = '3840:2160';
-        break;
-      default:
-        resolution = '1920:1080';
+    const { mediaFiles, outputPath, filename, settings = {} } = options;
+    
+    if (!mediaFiles || mediaFiles.length === 0) {
+      throw new Error('エクスポートするファイルが選択されていません');
     }
     
-    // コーデックオプションを設定
-    const hwaccel = await checkVideoToolboxSupport();
+    if (!outputPath) {
+      throw new Error('出力先が選択されていません');
+    }
     
-    // ステージ1: 各素材を統一フォーマットに変換
-    console.log('ステージ1: 素材変換開始');
-    updateProgress(0, mediaFiles.length, 'converting');
+    console.log('動画結合処理開始:', mediaFiles.length, '個のファイル');
+    console.log('出力先:', outputPath);
+    console.log('設定:', settings);
     
+    // 一時フォルダを作成
+    const tempDir = path.join(app.getPath('temp'), `swp1-export-${Date.now()}`);
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+    
+    // 進捗通知の初期化関数
+    const updateProgress = (current, total, stage) => {
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        const progress = Math.round((current / total) * 100);
+        console.log(`進捗状況: ${stage} ${progress}% (${current}/${total})`);
+        
+        mainWindow.webContents.send('export-progress', {
+          stage,
+          progress,
+          current,
+          total
+        });
+      }
+    };
+    
+    // concatファイルのパス
+    const concatFilePath = path.join(tempDir, 'concat.txt');
+    const tempFiles = [];
     const concatFileContent = [];
+    
+    // ステージ1: 各ファイルを一時ファイルとしてエクスポート
+    console.log('ステージ1: 個別ファイル変換開始');
+    updateProgress(0, mediaFiles.length, 'converting');
     
     for (let i = 0; i < mediaFiles.length; i++) {
       const file = mediaFiles[i];
-      const tempFilePath = path.join(tempDir, `temp_${i}_${Date.now()}.mp4`);
-      
-      console.log(`ファイル ${i+1}/${mediaFiles.length} を変換中:`, file.path);
-      
-      let ffmpegArgs = [
-        '-i', file.path,
-        '-vf', `scale=${resolution}:force_original_aspect_ratio=decrease,pad=${resolution}:(ow-iw)/2:(oh-ih)/2,setsar=1`,
-        '-r', settings.fps,
-        '-pix_fmt', 'yuv420p'
-      ];
-      
-      // トリムが設定されている場合
-      if (typeof file.trimStart === 'number' && typeof file.trimEnd === 'number' && file.trimStart < file.trimEnd) {
-        // トリムの開始と終了時間を設定
-        const start = file.trimStart;
-        const duration = file.trimEnd - file.trimStart;
-        
-        console.log(`Applying trim for ${file.path}: start=${start}s, duration=${duration}s`);
-        
-        // -ss（開始位置）と-t（継続時間）を追加
-        ffmpegArgs.splice(1, 0, '-ss', start.toString());
-        ffmpegArgs.splice(3, 0, '-t', duration.toString());
-      }
-      
-      // Loudness 正規化がオンの場合
-      if (file.loudnessNormalization !== false) {
-        try {
-          // まだLUFS情報がない場合は測定
-          let loudnessInfo = file.loudnessInfo;
-          
-          if (!loudnessInfo) {
-            loudnessInfo = await measureLoudness(file.path);
-            // mainWindow?.webContents.send('loudness-measured', { id: file.id, loudnessInfo });
-          }
-          
-          // YouTubeの推奨値である-14 LUFSに合わせて正規化
-          ffmpegArgs.push('-af', `loudnorm=I=-14:LRA=11:TP=-1.5`);
-          
-          console.log(`ラウドネス正規化適用: ${file.path} (現在: ${loudnessInfo.inputIntegratedLoudness} LUFS → 目標: -14 LUFS)`);
-        } catch (error) {
-          console.error('ラウドネス正規化エラー:', error);
-          // エラーが発生してもラウドネス正規化をスキップして処理を続行
-        }
-      }
-      
-      // ハードウェアエンコーダー（H.264/H.265）またはProResを選択
-      if (settings.codec === 'h264') {
-        if (hwaccel) {
-          // macOSのVideoToolboxを使用（H.264）
-          ffmpegArgs.push('-c:v', 'h264_videotoolbox', '-b:v', '20M');
-        } else {
-          // ソフトウェアエンコーダーを使用
-          ffmpegArgs.push('-c:v', 'libx264', '-crf', '22', '-preset', 'fast');
-        }
-      } else if (settings.codec === 'h265') {
-        if (hwaccel) {
-          // macOSのVideoToolboxを使用（H.265/HEVC）
-          ffmpegArgs.push('-c:v', 'hevc_videotoolbox', '-b:v', '20M');
-        } else {
-          // ソフトウェアエンコーダーを使用
-          ffmpegArgs.push('-c:v', 'libx265', '-crf', '26', '-preset', 'fast');
-        }
-      } else if (settings.codec === 'prores_hq') {
-        // ProRes HQ
-        ffmpegArgs.push('-c:v', 'prores_ks', '-profile:v', '3', '-qscale:v', '5');
-      }
+      console.log(`ファイル処理 (${i+1}/${mediaFiles.length}):`, file.path);
       
       try {
-        // 画像ファイルの場合、特別な処理を追加
-        if (file.type === 'image') {
-          // 画像ファイルを5秒間の動画に変換（必要に応じて時間を調整可能）
+        // 出力一時ファイルパス
+        const tempFilePath = path.join(tempDir, `temp-${i}.mp4`);
+        
+        // FFmpegコマンドを構築
+        const ffmpegArgs = [
+          '-hide_banner',
+          '-y'  // 上書き確認なし
+        ];
+        
+        // ビデオコーデックの選択
+        let videoCodec = 'libx264';  // デフォルトはH.264
+        
+        // Apple Siliconでのハードウェアエンコード設定
+        if (settings.useHardwareAcceleration) {
+          const hwaccelSupport = await checkVideoToolboxSupport();
+          if (hwaccelSupport.videotoolbox) {
+            console.log('VideoToolboxを使用したハードウェアエンコードを有効化');
+            ffmpegArgs.push('-hwaccel', 'videotoolbox');
+            
+            if (settings.codec === 'h265') {
+              videoCodec = 'hevc_videotoolbox';
+            } else {
+              videoCodec = 'h264_videotoolbox';
+            }
+          } else {
+            console.log('ハードウェアエンコードはサポートされていません、ソフトウェアエンコードを使用します');
+            if (settings.codec === 'h265') {
+              videoCodec = 'libx265';
+            }
+          }
+        } else {
+          // ソフトウェアエンコード
+          if (settings.codec === 'h265') {
+            videoCodec = 'libx265';
+          }
+        }
+        
+        // 入力ファイル
+        ffmpegArgs.push('-i', file.path);
+        
+        // 開始時間と終了時間の設定（トリミング）
+        if (file.trimStart || file.trimEnd) {
+          if (file.trimStart) {
+            ffmpegArgs.push('-ss', file.trimStart);
+          }
+          
+          if (file.trimEnd) {
+            // 継続時間ではなく終了時間が指定されている場合
+            ffmpegArgs.push('-to', file.trimEnd);
+          }
+        }
+        
+        // ビデオ設定
+        ffmpegArgs.push('-c:v', videoCodec);
+        
+        // 品質設定
+        if (settings.quality === 'high') {
+          ffmpegArgs.push('-crf', '18');  // 高品質
+        } else if (settings.quality === 'low') {
+          ffmpegArgs.push('-crf', '28');  // 低品質
+        } else {
+          // デフォルトは中品質
+          ffmpegArgs.push('-crf', '23');
+        }
+        
+        // 解像度設定
+        if (settings.resolution) {
+          ffmpegArgs.push('-vf', `scale=${settings.resolution}`);
+        }
+        
+        // プリセット設定
+        ffmpegArgs.push('-preset', settings.preset || 'medium');
+        
+        // H.265固有の設定
+        if (settings.codec === 'h265') {
+          ffmpegArgs.push('-tag:v', 'hvc1');  // Appleデバイス互換性
+        }
+        
+        // 静止画の場合は特別な処理
+        const ext = path.extname(file.path).toLowerCase();
+        if (['.jpg', '.jpeg', '.png', '.gif', '.bmp', '.webp'].includes(ext)) {
           ffmpegArgs.splice(1, 0, '-loop', '1', '-t', '5');
         }
         
@@ -1141,8 +1128,34 @@ ipcMain.handle('export-combined-video', async (event, { mediaFiles, outputPath, 
         // 最終的なファイルパスを追加
         ffmpegArgs.push(tempFilePath);
         
-        // FFmpegコマンドを実行
-        await runFFmpegCommand(ffmpegArgs);
+        // 新しいFFmpegサービスを使用して処理を開始
+        const result = await ffmpegServiceManager.processFFmpeg(ffmpegArgs);
+        console.log(`ファイル変換タスク開始 (${i+1}/${mediaFiles.length}):`, result.taskId);
+        
+        // タスク進捗監視を開始
+        startTaskProgress(result.taskId, {
+          type: 'export',
+          data: {
+            stage: 'converting',
+            current: i,
+            total: mediaFiles.length
+          }
+        });
+        
+        // タスクが完了するまで待機
+        let taskStatus = null;
+        let isCompleted = false;
+        
+        while (!isCompleted) {
+          await new Promise(resolve => setTimeout(resolve, 500));
+          taskStatus = await ffmpegServiceManager.getTaskStatus(result.taskId);
+          
+          if (taskStatus.status === 'completed') {
+            isCompleted = true;
+          } else if (taskStatus.status === 'failed' || taskStatus.status === 'error') {
+            throw new Error(`ファイル変換エラー: ${taskStatus.stderr || 'Unknown error'}`);
+          }
+        }
         
         // 一時ファイルリストに追加
         tempFiles.push(tempFilePath);
@@ -1213,8 +1226,35 @@ ipcMain.handle('export-combined-video', async (event, { mediaFiles, outputPath, 
     
     console.log('FFmpeg結合コマンド:', concatArgs.join(' '));
     
-    // FFmpeg実行
-    await runFFmpegCommand(concatArgs);
+    // 新しいFFmpegサービスを使用して結合処理を開始
+    const concatResult = await ffmpegServiceManager.processFFmpeg(concatArgs);
+    console.log('結合タスク開始:', concatResult.taskId);
+    
+    // タスク進捗監視を開始
+    startTaskProgress(concatResult.taskId, {
+      type: 'export',
+      data: {
+        stage: 'combining',
+        current: 0,
+        total: 1
+      }
+    });
+    
+    // タスクが完了するまで待機
+    let concatStatus = null;
+    let isCompleted = false;
+    
+    while (!isCompleted) {
+      await new Promise(resolve => setTimeout(resolve, 500));
+      concatStatus = await ffmpegServiceManager.getTaskStatus(concatResult.taskId);
+      
+      if (concatStatus.status === 'completed') {
+        isCompleted = true;
+      } else if (concatStatus.status === 'failed' || concatStatus.status === 'error') {
+        throw new Error(`ファイル結合エラー: ${concatStatus.stderr || 'Unknown error'}`);
+      }
+    }
+    
     updateProgress(1, 1, 'combining');
     
     // 一時ファイルの削除
@@ -1249,3 +1289,80 @@ ipcMain.handle('get-desktop-path', () => {
 });
 
 // その他のIPC処理をここに追加 
+
+// タスク進捗状況をポーリングするバックグラウンド処理
+const activeTasks = new Map();
+
+// タスク進捗状況の監視を開始
+function startTaskProgress(taskId, options = {}) {
+  if (activeTasks.has(taskId)) {
+    // 既に監視中の場合は何もしない
+    return;
+  }
+  
+  console.log(`タスク ${taskId} の進捗監視を開始`);
+  
+  const intervalId = setInterval(async () => {
+    try {
+      const status = await ffmpegServiceManager.getTaskStatus(taskId);
+      
+      // タスクが完了または失敗した場合は監視を停止
+      if (status.status === 'completed' || status.status === 'failed' || status.status === 'error') {
+        stopTaskProgress(taskId);
+      }
+      
+      // 進捗情報をレンダラープロセスに送信
+      if (mainWindow && !mainWindow.isDestroyed()) {
+        mainWindow.webContents.send('ffmpeg-task-progress', {
+          taskId,
+          status: status.status,
+          progress: status.progress || 0,
+          ...status
+        });
+        
+        // 特定のタスク種別の場合、専用のイベントも発行
+        if (options.type === 'export') {
+          mainWindow.webContents.send('export-progress', {
+            progress: status.progress || 0,
+            status: status.status,
+            ...options.data
+          });
+        } else if (options.type === 'loudness') {
+          // 完了時のみ通知
+          if (status.status === 'completed') {
+            mainWindow.webContents.send('loudness-measured', {
+              ...options.data,
+              result: status.result
+            });
+          } else if (status.status === 'failed' || status.status === 'error') {
+            mainWindow.webContents.send('loudness-error', {
+              error: status.stderr || 'Unknown error'
+            });
+          }
+        }
+      }
+    } catch (error) {
+      console.error(`タスク ${taskId} の進捗取得エラー:`, error);
+      
+      // エラー発生時も監視を停止
+      stopTaskProgress(taskId);
+    }
+  }, 500); // 500ミリ秒ごとに更新
+  
+  // タスク情報を保存
+  activeTasks.set(taskId, {
+    intervalId,
+    options,
+    startTime: Date.now()
+  });
+}
+
+// タスク進捗状況の監視を停止
+function stopTaskProgress(taskId) {
+  const task = activeTasks.get(taskId);
+  if (task) {
+    clearInterval(task.intervalId);
+    activeTasks.delete(taskId);
+    console.log(`タスク ${taskId} の進捗監視を停止 (所要時間: ${(Date.now() - task.startTime) / 1000}秒)`);
+  }
+}

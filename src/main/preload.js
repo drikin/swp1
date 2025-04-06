@@ -24,7 +24,9 @@ try {
     'generate-waveform',
     'generate-thumbnail',
     'export-combined-video',
-    'measure-loudness'
+    'measure-loudness',
+    'ffmpeg-task-status',  // 新しいFFmpegタスクステータス確認用チャンネル
+    'ffmpeg-task-cancel'   // 新しいFFmpegタスクキャンセル用チャンネル
   ];
   
   const validEventChannels = [
@@ -33,7 +35,8 @@ try {
     'export-progress', 
     'thumbnail-generated',
     'loudness-measured',
-    'loudness-error'
+    'loudness-error',
+    'ffmpeg-task-progress'  // 新しいFFmpegタスク進捗通知用チャンネル
   ];
   
   // 統合されたAPIオブジェクトを作成
@@ -97,6 +100,10 @@ try {
     },
     exportCombinedVideo: (options) => ipcRenderer.invoke('export-combined-video', options),
     measureLoudness: (filePath) => ipcRenderer.invoke('measure-loudness', filePath),
+    
+    // 新しいFFmpegタスク管理関数
+    getFFmpegTaskStatus: (taskId) => ipcRenderer.invoke('ffmpeg-task-status', taskId),
+    cancelFFmpegTask: (taskId) => ipcRenderer.invoke('ffmpeg-task-cancel', taskId),
     
     // ファイル操作関連
     openFileDialog: (paths) => ipcRenderer.invoke('open-file-dialog', paths),
