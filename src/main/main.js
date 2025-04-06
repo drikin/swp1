@@ -917,23 +917,61 @@ ipcMain.handle('measure-loudness', async (event, filePath) => {
 // 波形データを生成
 ipcMain.handle('generate-waveform', async (event, filePath, outputPath) => {
   try {
-    // PCM音声データを抽出
-    const pcmOutputPath = outputPath || path.join(app.getPath('temp'), `${path.basename(filePath, path.extname(filePath))}.pcm`);
+    // ファイルパスの検証
+    if (!filePath || typeof filePath !== 'string') {
+      throw new Error('有効なファイルパスが指定されていません');
+    }
     
-    await runFFmpegCommand([
-      '-i', filePath,
-      '-f', 's16le',  // 16ビット符号付き整数（リトルエンディアン）形式
-      '-acodec', 'pcm_s16le',
-      '-ac', '1',     // モノラルに変換
-      '-ar', '44100', // サンプリングレート44.1kHz
-      pcmOutputPath
-    ]);
+    if (!fs.existsSync(filePath)) {
+      throw new Error(`ファイルが存在しません: ${filePath}`);
+    }
+    
+    console.log('波形データ生成開始:', filePath);
+    
+    // PCM音声データを抽出
+    const pcmOutputPath = outputPath || path.join(app.getPath('temp'), `${path.basename(filePath, path.extname(filePath))}_${Date.now()}.pcm`);
+    
+    // 直接FFmpegコマンドを実行（新しい方法）
+    const { spawn } = require('child_process');
+    
+    await new Promise((resolve, reject) => {
+      console.log('PCM音声データ抽出コマンド実行中...');
+      const process = spawn(ffmpegPath, [
+        '-i', filePath,
+        '-f', 's16le',  // 16ビット符号付き整数（リトルエンディアン）形式
+        '-acodec', 'pcm_s16le',
+        '-ac', '1',     // モノラルに変換
+        '-ar', '44100', // サンプリングレート44.1kHz
+        pcmOutputPath
+      ]);
+      
+      process.stderr.on('data', (data) => {
+        console.log('FFmpeg 波形抽出:', data.toString().trim());
+      });
+      
+      process.on('close', (code) => {
+        if (code === 0) {
+          console.log('PCM抽出成功:', pcmOutputPath);
+          resolve();
+        } else {
+          reject(new Error(`音声データ抽出に失敗しました (コード: ${code})`));
+        }
+      });
+      
+      process.on('error', (err) => {
+        reject(new Error(`FFmpegプロセスエラー: ${err.message}`));
+      });
+    });
+    
+    console.log('PCMファイル読み込み中...');
     
     // PCMファイルの内容を読み取る
     const pcmData = fs.readFileSync(pcmOutputPath);
     
     // Int16Array に変換
     const waveformData = new Int16Array(new Uint8Array(pcmData).buffer);
+    
+    console.log(`波形データ生成: ${waveformData.length}サンプル`);
     
     // ファイルサイズが大きい場合はダウンサンプリング
     const maxSamples = 10000; // 適切なサイズに調整
@@ -960,7 +998,14 @@ ipcMain.handle('generate-waveform', async (event, filePath, outputPath) => {
     }
     
     // 一時ファイルを削除
-    fs.unlinkSync(pcmOutputPath);
+    try {
+      fs.unlinkSync(pcmOutputPath);
+      console.log('一時PCMファイルを削除しました');
+    } catch (err) {
+      console.warn('一時ファイル削除エラー:', err);
+    }
+    
+    console.log('波形データ生成完了');
     
     return {
       success: true,
@@ -968,7 +1013,7 @@ ipcMain.handle('generate-waveform', async (event, filePath, outputPath) => {
       sampleRate: 44100
     };
   } catch (error) {
-    console.error('Waveform generation error:', error);
+    console.error('波形生成エラー:', error);
     return { success: false, error: error.message };
   }
 });
