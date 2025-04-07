@@ -1375,12 +1375,32 @@ taskManager.on('tasks-updated', (taskSummary) => {
 });
 
 // FFmpegサービスからのタスクイベントをタスク管理システムに統合
+const ffmpegTaskMap = new Map();
 ffmpegServiceManager.on('task-created', (taskId, options) => {
+  // ファイル名の取得を改善
+  let fileName = null;
+  
+  // 1. 直接指定されたファイル名があればそれを使用
+  if (options.fileName) {
+    fileName = options.fileName;
+  } 
+  // 2. 入力ファイルパスがあれば、そのファイル名を抽出
+  else if (options.input) {
+    fileName = path.basename(options.input);
+  } 
+  // 3. commandから入力ファイルを推測（-i オプションの後の引数）
+  else if (options.command) {
+    const inputMatch = options.command.match(/-i\s+["']?([^"'\s]+)["']?/);
+    if (inputMatch && inputMatch[1]) {
+      fileName = path.basename(inputMatch[1]);
+    }
+  }
+
   // FFmpegタスクをタスク管理システムに登録
   const globalTaskId = taskManager.createTask({
     type: options.type || 'encode',
     fileId: options.fileId,
-    fileName: options.fileName || path.basename(options.input || '不明なファイル'),
+    fileName: fileName || null, // デフォルト値を削除し、nullを使用
     cancellable: true,
     details: options.details || `FFmpeg処理: ${options.command || ''}`
   });
@@ -1388,9 +1408,6 @@ ffmpegServiceManager.on('task-created', (taskId, options) => {
   // FFmpegタスクIDとグローバルタスクIDのマッピングを保存
   ffmpegTaskMap.set(taskId, globalTaskId);
 });
-
-// FFmpegタスクとグローバルタスクのマッピング
-const ffmpegTaskMap = new Map();
 
 // FFmpegタスクの進捗更新イベント
 ffmpegServiceManager.on('task-progress', (taskId, progress) => {

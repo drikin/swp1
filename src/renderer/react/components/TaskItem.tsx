@@ -121,7 +121,7 @@ const TaskItem: React.FC<TaskItemProps> = ({ task }) => {
               }}
             >
               {taskTypeLabels[task.type] || task.type}
-              {task.fileName && (
+              {task.fileName && task.fileName.trim() !== '' && (
                 <Typography 
                   component="span" 
                   variant="caption" 
