@@ -11,6 +11,10 @@
     "outDir": "./src/renderer/dist",
     "moduleResolution": "node",
     "baseUrl": ".",
+    "paths": {
+      "@mui/icons-material": ["node_modules/@mui/icons-material"],
+      "@mui/icons-material/*": ["node_modules/@mui/icons-material/*"]
+    },
     "lib": ["dom", "es2016"]
   },
   "include": ["src/renderer/react/**/*"]

@@ -26,7 +26,9 @@ try {
     'export-combined-video',
     'measure-loudness',
     'ffmpeg-task-status',  // 新しいFFmpegタスクステータス確認用チャンネル
-    'ffmpeg-task-cancel'   // 新しいFFmpegタスクキャンセル用チャンネル
+    'ffmpeg-task-cancel',  // 新しいFFmpegタスクキャンセル用チャンネル
+    'get-task-list',       // タスクリスト取得用チャンネル
+    'cancel-task'          // タスクキャンセル用チャンネル
   ];
   
   const validEventChannels = [
@@ -36,7 +38,8 @@ try {
     'thumbnail-generated',
     'loudness-measured',
     'loudness-error',
-    'ffmpeg-task-progress'  // 新しいFFmpegタスク進捗通知用チャンネル
+    'ffmpeg-task-progress', // 新しいFFmpegタスク進捗通知用チャンネル
+    'tasks-updated'         // タスク一覧更新通知用チャンネル
   ];
   
   // 統合されたAPIオブジェクトを作成
@@ -122,3 +125,21 @@ contextBridge.exposeInMainWorld('versions', {
   chrome: () => process.versions.chrome,
   electron: () => process.versions.electron
 }); 
+
+// タスク管理APIをレンダラープロセスに公開
+contextBridge.exposeInMainWorld('taskManager', {
+  // タスク一覧を取得
+  getTasks: () => ipcRenderer.invoke('get-task-list'),
+  
+  // タスクをキャンセル
+  cancelTask: (taskId) => ipcRenderer.invoke('cancel-task', taskId),
+  
+  // タスク更新の購読
+  onTasksUpdated: (callback) => {
+    const subscription = (event, ...args) => callback(...args);
+    ipcRenderer.on('tasks-updated', subscription);
+    return () => {
+      ipcRenderer.removeListener('tasks-updated', subscription);
+    };
+  }
+});

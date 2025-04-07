@@ -6,6 +6,7 @@ const { spawn } = require('child_process');
 const axios = require('axios');
 const path = require('path');
 const { app } = require('electron');
+const { EventEmitter } = require('events');
 
 // FFmpegサービスのデフォルト設定
 const DEFAULT_PORT = 3001;
@@ -15,8 +16,9 @@ const SERVICE_START_TIMEOUT = 10000; // 10秒のサービス起動タイムア�
 /**
  * FFmpegサービスマネージャークラス
  */
-class FFmpegServiceManager {
+class FFmpegServiceManager extends EventEmitter {
   constructor(options = {}) {
+    super(); // EventEmitterのコンストラクタを呼び出し
     this.port = options.port || DEFAULT_PORT;
     this.serviceProcess = null;
     this.isRunning = false;
@@ -214,12 +216,22 @@ class FFmpegServiceManager {
       // タスクIDの生成
       const taskId = `task-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
       
+      // タスク作成イベントを発行
+      this.emit('task-created', taskId, {
+        ...options,
+        command: args.join(' '),
+        type: options.type || 'encode'
+      });
+      
       // FFmpegタスクリクエスト
       const response = await axios.post(`${this.baseUrl}/process`, {
         taskId,
         args,
         options
       });
+      
+      // タスク進捗を監視するためのポーリング
+      this._startTaskPolling(taskId);
       
       return { taskId, ...response.data };
     } catch (error) {
@@ -344,6 +356,77 @@ class FFmpegServiceManager {
       clearInterval(this.healthCheckInterval);
       this.healthCheckInterval = null;
     }
+  }
+  
+  /**
+   * タスクをキャンセル
+   */
+  async cancelTask(taskId) {
+    try {
+      const response = await axios.post(`${this.baseUrl}/cancel/${taskId}`);
+      
+      // キャンセル成功時にイベントを発行
+      if (response.data && response.data.success) {
+        this.emit('task-cancelled', taskId, response.data);
+      }
+      
+      return response.data;
+    } catch (error) {
+      console.error('FFmpegタスクキャンセルエラー:', error);
+      return { success: false, error: error.message };
+    }
+  }
+  
+  /**
+   * タスク進捗のポーリングを開始
+   */
+  _startTaskPolling(taskId) {
+    const pollInterval = 1000; // 1秒ごとにポーリング
+    let interval = setInterval(async () => {
+      try {
+        const status = await this.getTaskStatus(taskId);
+        
+        // 進捗イベントを発行
+        if (status.progress !== undefined) {
+          this.emit('task-progress', taskId, {
+            percent: status.progress,
+            details: status.details || null
+          });
+        }
+        
+        // タスク完了の場合
+        if (status.status === 'completed') {
+          this.emit('task-completed', taskId, status.result || null);
+          clearInterval(interval);
+        }
+        
+        // エラーの場合
+        else if (status.status === 'error') {
+          this.emit('task-error', taskId, {
+            message: status.error || 'タスクの実行中にエラーが発生しました',
+            details: status.details || null
+          });
+          clearInterval(interval);
+        }
+        
+        // キャンセルの場合
+        else if (status.status === 'cancelled') {
+          this.emit('task-cancelled', taskId);
+          clearInterval(interval);
+        }
+      } catch (error) {
+        console.error(`タスク[${taskId}]のポーリングエラー:`, error);
+        // エラーが続くようならポーリング停止を検討
+      }
+    }, pollInterval);
+    
+    // 5分後に強制停止（無限ポーリングを避ける）
+    setTimeout(() => {
+      if (interval) {
+        clearInterval(interval);
+        console.log(`タスク[${taskId}]のポーリングがタイムアウトで停止されました`);
+      }
+    }, 5 * 60 * 1000);
   }
 }
 

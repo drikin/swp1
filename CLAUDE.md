@@ -57,11 +57,58 @@
 ■ 技術スタック
 
 機能	使用技術
-UI	Electron + HTML/CSS/JS（将来的にVue/React）
-動画処理	FFmpeg（ffmpeg-static or Apple最適化ビルド）
+UI	Electron + HTML/CSS/JS（React）
+動画処理	FFmpeg（ffmpeg-static）
 エンコード	VideoToolbox（HW支援） + ProRes
 波形描画	PCM（s16le） → Int16Array → Canvas
 タスク管理	Node.js非同期 + フロント同期通知
+バックエンド	マイクロサービスアーキテクチャ + Express + Axios
+
+⸻
+
+■ プロジェクト構成
+
+```
+swp1/
+├── package.json           # 依存関係と設定
+├── src/
+│   ├── main/              # メインプロセス
+│   │   ├── main.js        # エントリーポイント
+│   │   ├── preload.js     # レンダラーとのIPC通信橋渡し役
+│   │   ├── ffmpeg-service-manager.js  # FFmpegサービス管理
+│   │   └── ffmpeg-service.js          # FFmpegマイクロサービス
+│   └── renderer/          # レンダラープロセス
+│       ├── index.html     # メインHTML
+│       └── react/         # Reactコンポーネント
+│           ├── App.tsx    # メインアプリケーション
+│           ├── components/
+│           │   ├── MediaPane.tsx      # メディアリスト
+│           │   ├── PlayerPane.tsx     # プレビュープレーヤー
+│           │   ├── TimelinePane.tsx   # タイムライン
+│           │   ├── TrimPane.tsx       # トリミング/波形
+│           │   └── ExportPane.tsx     # 書き出し設定
+│           └── types/     # 型定義
+└── dist/                  # ビルド済みアプリ
+```
+
+⸻
+
+■ アプリの起動方法
+
+**開発モード**
+```bash
+# 依存関係のインストール
+npm install
+
+# 開発モードでの実行
+npm start
+```
+
+**ビルド**
+```bash
+# macOS向けビルド
+npm run build:mac
+```
 
 ⸻
 
@@ -112,22 +159,11 @@ UI	Electron + HTML/CSS/JS（将来的にVue/React）
   - 書き出し設定UI
 
 ✅ フェーズ2&3の一部実装完了
-- 動画結合・出力機能を実装:
-  - 2段階エクスポートプロセス：
-    1. 各素材を統一フォーマットに変換（互換性向上）
-    2. 変換済みファイルを再エンコードなしで結合（高速化）
-  - Appleシリコン向けハードウェアエンコード対応:
-    - VideoToolboxエンコーダー（h264_videotoolbox/hevc_videotoolbox）を使用
-    - ハードウェア非対応環境ではソフトウェアエンコードに自動フォールバック
-  - 解像度、フレームレート、コーデック設定のカスタマイズ
-  - 出力先フォルダの選択（デフォルトはデスクトップ）
-  - デフォルトでH.265/HEVCコーデックを使用
-  - 進捗表示の実装（変換段階と結合段階で別々の進捗表示）
-  - 特殊形式への対応:
-    - DJI Osmoなどの特殊なHEVC動画
-    - 静止画の自動動画化（5秒間）
-    - 10ビット色深度の処理
-  - エラーハンドリングの強化
+- 動画の読み込み機能
+- 波形抽出とCanvas描画の基本実装
+- トリミング範囲の指定と保存
+- タイムラインでのクリップ管理
+- 基本的な書き出し機能
 
 ✅ タイムラインペインの完成（2025-03-31）
 - タイムラインベースのクリップ操作機能を実装完了
@@ -138,18 +174,9 @@ UI	Electron + HTML/CSS/JS（将来的にVue/React）
 - クリップ間の時間調整機能
 - 以後のコード改変は慎重に行いタイムラインペインのデグレードを防ぐ
 
-✅ グローバルキーボードショートカット実装完了（2025-03-31）
-- 再生制御: スペース（再生/一時停止）、K（停止）
-- 速度変更: J（スロー/逆再生）、L（高速再生）
-- 素材選択: 上下矢印キー、PとNキー（前/次の素材）
-- コマンドショートカット: 
-  - Cmd/Ctrl+E（書き出し設定）
-  - Cmd/Ctrl+A（素材追加）
-- 以後のコード改変では既存のショートカット機能を維持し、デグレードさせないこと
-
-✅ サムネイル表示とファイルサイズ表示の問題解決（2025-04-04）
-- メディアファイルのサムネイル生成と表示機能の完全実装
-- ファイルサイズの正確な表示機能の実装
+✅ サムネイル生成機能の修正（2025-04-02）
+- サムネイル生成フローの修正により、タイムラインでのサムネイル表示機能を改善
+- thumbnail-generatedイベントを活用した非同期通知の実装
 - ElectronのIPC通信における重要な修正:
   - preload.jsでのサムネイル生成APIの公開
   - main.jsでのサムネイル生成関数の強化
@@ -234,9 +261,131 @@ UI	Electron + HTML/CSS/JS（将来的にVue/React）
   - IPC通信の設計とデバッグ手法
   - レンダラープロセスとメインプロセス間のデータ受け渡しのベストプラクティス
 
+✅ IPC通信のリファクタリング（2025-04-06）
+- ElectronとFFmpeg間の通信を改善し、より信頼性の高い構造に修正:
+  1. **マイクロサービスアーキテクチャの導入**:
+     - `ffmpeg-service.js`: FFmpegをExpressベースのマイクロサービスとして実装
+     - RESTful APIエンドポイントでFFmpegタスクを処理（/process, /status/:taskId, /health）
+     - タスクキューによる複数FFmpegタスクの順次処理
+  
+  2. **FFmpegサービスマネージャーの実装**:
+     - `ffmpeg-service-manager.js`: FFmpegサービスのライフサイクル管理
+     - サービスの起動、停止、監視機能
+     - Axios APIクライアントによるサービスとの通信
+  
+  3. **IPC通信の改善**:
+     - `main.js`の更新: FFmpegサービスマネージャーとの統合
+     - FFmpegバージョン確認、タスク状態確認、タスクキャンセル用のIPC通信ハンドラー
+     - 進捗監視とレンダラープロセスへの更新通知
+  
+  4. **preload.jsの更新**:
+     - FFmpegタスク管理のための新しいAPI公開
+     - タスク状態取得とタスクキャンセル機能の追加
+  
+  5. **FFprobeコマンドの最適化**:
+     - `runFFprobeCommand`関数の改善: 直接実行方式による信頼性向上
+     - メタデータ取得の精度向上とエラーハンドリング強化
+  
+  6. **波形表示機能の修正**:
+     - `generate-waveform`ハンドラーの改善: 直接FFmpegプロセス実行方式への変更
+     - ファイルパスのバリデーション強化
+     - 一時ファイル管理の改善とエラーハンドリングの強化
+     - 詳細なログ出力によるデバッグ性の向上
+
+- **リファクタリングの成果**:
+  1. **安定性の向上**:
+     - プロセス分離による影響範囲の局所化
+     - エラー発生時も他の機能に影響が波及しない構造
+  
+  2. **デバッグの容易さ**:
+     - 詳細なログ出力による問題特定の迅速化
+     - 明確なエラーメッセージの提供
+  
+  3. **スケーラビリティの向上**:
+     - 複数のFFmpegタスクを順次処理できる構造
+     - 将来的な機能拡張に対応しやすい設計
+
+- **技術的なポイント**:
+  1. **Expressサーバーの活用**:
+     ```javascript
+     // RESTful API設計
+     app.post('/process', async (req, res) => {
+       const { command, taskId } = req.body;
+       // タスク処理ロジック
+     });
+     
+     app.get('/status/:taskId', (req, res) => {
+       const { taskId } = req.params;
+       // タスク状態取得ロジック
+     });
+     
+     app.get('/health', (req, res) => {
+       // ヘルスチェックロジック
+     });
+     ```
+  
+  2. **タスク管理システム**:
+     ```javascript
+     // タスクキュー管理
+     const taskQueue = [];
+     const activeTasks = {};
+     
+     function processNextTask() {
+       if (taskQueue.length === 0 || isProcessing) return;
+       
+       isProcessing = true;
+       const nextTask = taskQueue.shift();
+       // タスク実行ロジック
+     }
+     ```
+  
+  3. **波形生成の改善**:
+     ```javascript
+     // 直接プロセス実行による波形生成
+     const process = spawn(ffmpegPath, [
+       '-i', filePath,
+       '-f', 's16le',
+       '-acodec', 'pcm_s16le',
+       '-ac', '1',
+       '-ar', '44100',
+       pcmOutputPath
+     ]);
+     ```
+
 📋 次のステップ (フェーズ3&4の残り実装)
 - ラウドネス正規化機能の実装
 - クロスフェード結合機能の実装
 - タイムラインから選択した範囲のみを書き出す機能
 - 書き出し条件管理の強化
 - バックグラウンドインジケータの実装
+
+⸻
+
+■ その他の情報
+
+**開発環境**
+- Node.js: 18.x
+- Electron: 27.x
+- React: 18.x
+- TypeScript: 5.x
+- FFmpeg: 7.1.1
+
+**アーキテクチャ図**
+```
+[レンダラープロセス] <--IPC--> [メインプロセス] <--HTTP--> [FFmpegサービス]
+    (React UI)                (Electron)                (Express)
+```
+
+**レンダラープロセスからのAPI呼び出し例**
+```javascript
+// トリミングビュー波形生成
+const waveformResult = await window.api.generateWaveform(selectedMedia.path);
+if (waveformResult.success) {
+  setWaveformData(waveformResult.waveform);
+}
+
+// FFmpegタスク進捗監視
+window.api.on('ffmpeg-task-progress', (progress) => {
+  updateProgressIndicator(progress);
+});
+```

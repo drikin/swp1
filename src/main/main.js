@@ -1,25 +1,35 @@
-const { app, BrowserWindow, ipcMain, dialog } = require('electron');
+const { app, BrowserWindow, ipcMain, dialog, shell } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { spawn, execSync } = require('child_process');
-const ffmpeg = require('fluent-ffmpeg');
+const os = require('os');
+const url = require('url');
+const { spawn } = require('child_process');
+const { execSync } = require('child_process');
 const ffmpegServiceManager = require('./ffmpeg-service-manager');
+const taskManager = require('./task-manager'); 
 
 // システムのFFmpegパスを動的に取得
-let ffmpegPath;
+let ffmpegPath = '/opt/homebrew/bin/ffmpeg'; // デフォルトパスを設定
 try {
-  // 'which ffmpeg'コマンドでパスを取得
+  // 'which ffmpeg'コマンドでパスを取得（同期実行）
   ffmpegPath = execSync('which ffmpeg').toString().trim();
   console.log('システムのFFmpegを使用します:', ffmpegPath);
 } catch (error) {
   console.error('システムにFFmpegが見つかりません:', error);
-  ffmpegPath = 'ffmpeg'; // 環境変数PATHから検索する
+  // macOSの一般的なパスも試す
+  if (fs.existsSync('/opt/homebrew/bin/ffmpeg')) {
+    ffmpegPath = '/opt/homebrew/bin/ffmpeg';
+    console.log('Homebrewのインストールパスを使用します:', ffmpegPath);
+  } else {
+    console.warn('デフォルトパスを使用します（PATHから検索）:', ffmpegPath);
+  }
 }
 
 // FFmpegのパスを確認
 console.log('FFmpeg path:', ffmpegPath);
 
 // fluent-ffmpegにパスを設定
+const ffmpeg = require('fluent-ffmpeg');
 ffmpeg.setFfmpegPath(ffmpegPath);
 
 // ウィンドウオブジェクトのグローバル参照を保持
@@ -56,27 +66,37 @@ function createWindow() {
 }
 
 // Electronの初期化が完了したらウィンドウを作成
-app.whenReady().then(() => {
-  createWindow();
-  
-  // 一時ディレクトリを作成
-  if (!fs.existsSync(tempDir)) {
-    fs.mkdirSync(tempDir, { recursive: true });
-  }
-  
-  // FFmpegサービスの起動
-  ffmpegServiceManager.start().catch(error => {
-    console.error('FFmpegサービス起動エラー:', error);
-  });
-  
-  // ファイルのドラッグ&ドロップを許可
-  app.on('browser-window-created', (_, window) => {
-    window.webContents.on('did-finish-load', () => {
-      window.webContents.session.on('will-download', (e, item) => {
-        e.preventDefault();
+app.whenReady().then(async () => {
+  try {
+    // FFmpegのパスを保存（既にグローバル変数で設定済み）
+    global.ffmpegPath = ffmpegPath;
+    
+    console.log('FFmpeg path:', ffmpegPath);
+    
+    // ウィンドウを作成
+    createWindow();
+    
+    // 一時ディレクトリを作成
+    if (!fs.existsSync(tempDir)) {
+      fs.mkdirSync(tempDir, { recursive: true });
+    }
+    
+    // FFmpegサービスの起動
+    ffmpegServiceManager.start().catch(error => {
+      console.error('FFmpegサービス起動エラー:', error);
+    });
+    
+    // ファイルのドラッグ&ドロップを許可
+    app.on('browser-window-created', (_, window) => {
+      window.webContents.on('did-finish-load', () => {
+        window.webContents.session.on('will-download', (e, item) => {
+          e.preventDefault();
+        });
       });
     });
-  });
+  } catch (error) {
+    console.error('初期化エラー:', error);
+  }
 });
 
 // すべてのウィンドウが閉じられたときの処理 (macOS以外)
@@ -1333,7 +1353,123 @@ ipcMain.handle('get-desktop-path', () => {
   return app.getPath('desktop');
 });
 
-// その他のIPC処理をここに追加 
+// タスク管理システム関連のハンドラー登録
+// タスク一覧取得
+ipcMain.handle('get-task-list', async () => {
+  return taskManager.getTasksSummary();
+});
+
+// タスクキャンセル
+ipcMain.handle('cancel-task', async (event, taskId) => {
+  return taskManager.cancelTask(taskId);
+});
+
+// タスク更新イベントをレンダラープロセスに送信
+taskManager.on('tasks-updated', (taskSummary) => {
+  // 全ウィンドウにイベントを送信
+  BrowserWindow.getAllWindows().forEach(window => {
+    if (!window.isDestroyed()) {
+      window.webContents.send('tasks-updated', taskSummary);
+    }
+  });
+});
+
+// FFmpegサービスからのタスクイベントをタスク管理システムに統合
+ffmpegServiceManager.on('task-created', (taskId, options) => {
+  // FFmpegタスクをタスク管理システムに登録
+  const globalTaskId = taskManager.createTask({
+    type: options.type || 'encode',
+    fileId: options.fileId,
+    fileName: options.fileName || path.basename(options.input || '不明なファイル'),
+    cancellable: true,
+    details: options.details || `FFmpeg処理: ${options.command || ''}`
+  });
+  
+  // FFmpegタスクIDとグローバルタスクIDのマッピングを保存
+  ffmpegTaskMap.set(taskId, globalTaskId);
+});
+
+// FFmpegタスクとグローバルタスクのマッピング
+const ffmpegTaskMap = new Map();
+
+// FFmpegタスクの進捗更新イベント
+ffmpegServiceManager.on('task-progress', (taskId, progress) => {
+  const globalTaskId = ffmpegTaskMap.get(taskId);
+  if (globalTaskId) {
+    taskManager.updateTask(globalTaskId, {
+      status: 'processing',
+      progress: progress.percent || 0
+    });
+  }
+});
+
+// FFmpegタスクの完了イベント
+ffmpegServiceManager.on('task-completed', (taskId, result) => {
+  const globalTaskId = ffmpegTaskMap.get(taskId);
+  if (globalTaskId) {
+    taskManager.updateTask(globalTaskId, {
+      status: 'completed',
+      progress: 100,
+      details: result ? `完了: ${JSON.stringify(result)}` : '処理完了'
+    });
+    ffmpegTaskMap.delete(taskId);
+  }
+});
+
+// FFmpegタスクのエラーイベント
+ffmpegServiceManager.on('task-error', (taskId, error) => {
+  const globalTaskId = ffmpegTaskMap.get(taskId);
+  if (globalTaskId) {
+    taskManager.updateTask(globalTaskId, {
+      status: 'error',
+      error: error.message || 'FFmpeg処理中にエラーが発生しました',
+      details: error.details || null
+    });
+    ffmpegTaskMap.delete(taskId);
+  }
+});
+
+// FFmpegタスクのキャンセルイベント
+ffmpegServiceManager.on('task-cancelled', (taskId, result) => {
+  const globalTaskId = ffmpegTaskMap.get(taskId);
+  if (globalTaskId) {
+    taskManager.updateTask(globalTaskId, {
+      status: 'cancelled',
+      progress: 0,
+      details: 'タスクはキャンセルされました'
+    });
+    ffmpegTaskMap.delete(taskId);
+  }
+});
+
+// タスクキャンセルリクエストの処理
+taskManager.on('task-cancel-requested', async (taskId, taskType) => {
+  // FFmpegタスクのキャンセル処理
+  for (const [ffmpegTaskId, globalTaskId] of ffmpegTaskMap.entries()) {
+    if (globalTaskId === taskId) {
+      try {
+        const result = await ffmpegServiceManager.cancelTask(ffmpegTaskId);
+        console.log(`タスク ${taskId} のキャンセル結果:`, result);
+        
+        // タスクをキャンセル状態に更新（成功した場合のみ）
+        if (result && result.success) {
+          taskManager.updateTask(taskId, {
+            status: 'cancelled',
+            progress: 0,
+            details: 'キャンセル処理が完了しました'
+          });
+        }
+      } catch (error) {
+        console.error(`FFmpegタスク ${ffmpegTaskId} のキャンセルに失敗:`, error);
+        // キャンセル処理に失敗した場合も通知
+        taskManager.updateTask(taskId, {
+          error: `キャンセル処理中にエラーが発生しました: ${error.message || '不明なエラー'}`
+        });
+      }
+      break;
+    }
+  }
+});
 
 // タスク進捗状況をポーリングするバックグラウンド処理
 const activeTasks = new Map();
@@ -1352,7 +1488,7 @@ function startTaskProgress(taskId, options = {}) {
       const status = await ffmpegServiceManager.getTaskStatus(taskId);
       
       // タスクが完了または失敗した場合は監視を停止
-      if (status.status === 'completed' || status.status === 'failed' || status.status === 'error') {
+      if (status.status === 'completed' || status.status === 'failed' || status.status === 'error' || status.status === 'cancelled') {
         stopTaskProgress(taskId);
       }
       

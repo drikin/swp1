@@ -165,7 +165,9 @@ const TrimPane: React.FC<TrimPaneProps> = ({
       
       // パスが有効な場合のみ波形生成を実行
       if (filePath) {
-        window.api.generateWaveform(filePath)
+        // 出力パスを指定（一時的なものなので実際のパスは重要ではありません）
+        const outputPath = 'memory';
+        window.api.generateWaveform(filePath, outputPath)
           .then((data: { waveform: number[] }) => {
             // データがある場合は波形を設定
             if (data && data.waveform) {
