@@ -19,6 +19,14 @@ body {
   position: relative;
 }
 
+/* タスク管理エリア */
+.task-management-area {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  z-index: 10;
+}
+
 /* ドラッグ&ドロップ領域 */
 .app-container.dragover::after {
   content: "ファイルをドロップしてください";
@@ -84,6 +92,7 @@ body {
   display: flex;
   flex-direction: column;
   overflow: hidden;
+  min-height: 0; /* フレックスボックス内での収縮を許可 */
 }
 
 /* パネル共通スタイル */

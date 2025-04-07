@@ -9,7 +9,9 @@ import TimelinePane from './TimelinePane';
 import VideoPlayer, { VideoPlayerRef } from './VideoPlayer';
 import TrimPane from './TrimPane';
 import ExportSettings from './ExportSettings';
-import StatusBar from './StatusBar';
+import FooterTaskBar from './FooterTaskBar';
+import TaskDetailsPanel from './TaskDetailsPanel';
+import { TaskProvider } from './TaskContext';
 import { formatDuration } from '../../utils/formatters';
 
 // Electronでのファイル型拡張（pathプロパティを持つ）
@@ -28,6 +30,7 @@ const App: React.FC = () => {
   const [isDragging, setIsDragging] = useState(false);
   const [totalDuration, setTotalDuration] = useState(0); // 操作生成時間
   const [currentTime, setCurrentTime] = useState(0); // Add currentTime state
+  const [showTaskDetails, setShowTaskDetails] = useState(false); // タスク詳細パネルの表示状態
   const appRef = useRef<HTMLDivElement>(null);
   const videoPlayerRef = useRef<VideoPlayerRef>(null);
 
@@ -247,17 +250,38 @@ const App: React.FC = () => {
     if (window.api) {
       try {
         // 空の配列を渡してファイル選択ダイアログを表示
-        const files = await window.api.openFileDialog([]);
-        if (files && files.length > 0) {
-          setMediaFiles(prev => [...prev, ...files]);
-          setStatus(`${files.length}件のファイルを追加しました`);
+        const filePaths = await window.api.openFileDialog([]);
+        if (filePaths && filePaths.length > 0) {
+          // ファイルパスからメディア情報を取得
+          const newFiles: any[] = [];
           
-          // 追加されたファイルについて自動的にラウドネス測定を開始
-          files.forEach(file => {
-            if (file.type === 'video' || file.type === 'audio') {
-              startLoudnessMeasurement(file);
+          for (const path of filePaths) {
+            try {
+              // メディア情報を取得
+              const mediaInfo = await window.api.getMediaInfo(path);
+              if (mediaInfo) {
+                newFiles.push(mediaInfo);
+              }
+            } catch (error) {
+              console.error('メディア情報取得エラー:', error);
             }
-          });
+          }
+          
+          // 有効なメディアファイルが取得できた場合
+          if (newFiles.length > 0) {
+            setMediaFiles(prev => [...prev, ...newFiles]);
+            setStatus(`${newFiles.length}件のファイルを追加しました`);
+            
+            // 追加されたファイルについて自動的にラウドネス測定を開始
+            newFiles.forEach(file => {
+              // ファイルの種類をチェック
+              if (file.type === 'video' || file.type === 'audio') {
+                startLoudnessMeasurement(file);
+              }
+            });
+          } else {
+            setStatus('有効なメディアファイルが見つかりませんでした');
+          }
         }
       } catch (error) {
         console.error('ファイル選択エラー:', error);
@@ -265,7 +289,7 @@ const App: React.FC = () => {
       }
     }
   };
-  
+
   // ラウドネス測定を開始する関数
   const startLoudnessMeasurement = async (media: any) => {
     if (!window.api) return;
@@ -499,6 +523,11 @@ const App: React.FC = () => {
     }
   };
 
+  // タスク詳細パネルの表示/非表示を切り替え
+  const toggleTaskDetails = () => {
+    setShowTaskDetails(!showTaskDetails);
+  };
+
   // エクスポート設定の表示/非表示を切り替え
   const toggleExportSettings = () => {
     setShowExportSettings(!showExportSettings);
@@ -512,71 +541,84 @@ const App: React.FC = () => {
   );
 
   return (
-    <div className={`app-container ${isDragging ? 'dragover' : ''}`} ref={appRef}>
-      {/* ヘッダー */}
-      <Header
-        onAddFiles={handleAddFiles}
-        onToggleExport={toggleExportSettings}
-      />
-      
-      {/* メインコンテンツ */}
-      <div className="app-content">
-        {showExportSettings ? (
-          <ExportSettings onClose={() => setShowExportSettings(false)} mediaFiles={mediaFiles} />
-        ) : (
-          <PanelGroup direction="horizontal">
-            {/* 左パネル: タイムライン */}
-            <Panel defaultSize={25} minSize={15}>
-              <TimelinePane
-                mediaFiles={mediaFiles}
-                selectedMedia={selectedMedia}
-                onSelectMedia={handleSelectMedia}
-                onAddFiles={handleAddFiles}
-                onDropFiles={handleDropFiles}
-                onReorderMedia={handleReorderMedia}
-                onDeleteMedias={handleDeleteMedias}
-                onUpdateMedia={handleUpdateMedia}
-              />
-            </Panel>
-            
-            {renderResizeHandle()}
-            
-            {/* 右パネル: プレーヤーとトリミングペイン */}
-            <Panel defaultSize={75}>
-              <PanelGroup direction="vertical">
-                {/* 上部: ビデオプレーヤー */}
-                <Panel defaultSize={70} minSize={50}>
-                  <VideoPlayer
-                    ref={videoPlayerRef}
-                    media={selectedMedia}
-                    onTimeUpdate={setCurrentTime} // Pass setCurrentTime to VideoPlayer
-                  />
-                </Panel>
-                
-                {renderResizeHandle({ className: "horizontal" })}
-                
-                {/* 下部: トリミングペイン */}
-                <Panel defaultSize={30} minSize={20}>
-                  <TrimPane 
-                    selectedMedia={selectedMedia}
-                    currentTime={currentTime} // Pass currentTime to TrimPane
-                    onUpdateTrimPoints={handleUpdateTrimPoints} // Pass the handler
-                    onSeek={handleSeek} // Pass the seek handler
-                  />
-                </Panel>
-              </PanelGroup>
-            </Panel>
-          </PanelGroup>
-        )}
+    <TaskProvider>
+      <div className={`app-container ${isDragging ? 'dragover' : ''}`} ref={appRef}>
+        {/* ヘッダー */}
+        <Header
+          onAddFiles={handleAddFiles}
+          onToggleExport={toggleExportSettings}
+        />
+        
+        {/* メインコンテンツ */}
+        <div className="app-content">
+          {showExportSettings ? (
+            <ExportSettings onClose={() => setShowExportSettings(false)} mediaFiles={mediaFiles} />
+          ) : (
+            <PanelGroup direction="horizontal" style={{ height: '100%' }}>
+              {/* 左パネル: タイムライン */}
+              <Panel defaultSize={25} minSize={15}>
+                <TimelinePane
+                  mediaFiles={mediaFiles}
+                  selectedMedia={selectedMedia}
+                  onSelectMedia={handleSelectMedia}
+                  onAddFiles={handleAddFiles}
+                  onDropFiles={handleDropFiles}
+                  onReorderMedia={handleReorderMedia}
+                  onDeleteMedias={handleDeleteMedias}
+                  onUpdateMedia={handleUpdateMedia}
+                />
+              </Panel>
+              
+              {renderResizeHandle()}
+              
+              {/* 右パネル: プレーヤーとトリミングペイン */}
+              <Panel defaultSize={75}>
+                <PanelGroup direction="vertical">
+                  {/* 上部: ビデオプレーヤー */}
+                  <Panel defaultSize={70} minSize={50}>
+                    <VideoPlayer
+                      ref={videoPlayerRef}
+                      media={selectedMedia}
+                      onTimeUpdate={setCurrentTime}
+                    />
+                  </Panel>
+                  
+                  {renderResizeHandle({ className: "horizontal" })}
+                  
+                  {/* 下部: トリミングペイン */}
+                  <Panel defaultSize={30} minSize={20}>
+                    <TrimPane 
+                      selectedMedia={selectedMedia}
+                      currentTime={currentTime}
+                      onUpdateTrimPoints={handleUpdateTrimPoints}
+                      onSeek={handleSeek}
+                    />
+                  </Panel>
+                </PanelGroup>
+              </Panel>
+            </PanelGroup>
+          )}
+        </div>
+        
+        {/* タスク管理エリア: タスク詳細パネルとフッタータスクバー */}
+        <div className="task-management-area">
+          {/* タスク詳細パネル */}
+          <TaskDetailsPanel
+            open={showTaskDetails}
+            onClose={() => setShowTaskDetails(false)}
+          />
+          
+          {/* フッタータスクバー（旧ステータスバーの代わり） */}
+          <FooterTaskBar
+            ffmpegVersion={ffmpegVersion}
+            onShowTaskDetails={toggleTaskDetails}
+            status={status}
+            totalDuration={totalDuration}
+            isTaskDetailsOpen={showTaskDetails}
+          />
+        </div>
       </div>
-      
-      {/* ステータスバー */}
-      <StatusBar
-        status={status}
-        ffmpegVersion={ffmpegVersion}
-        totalDuration={totalDuration} // 操作生成時間を渡す
-      />
-    </div>
+    </TaskProvider>
   );
 };
 
