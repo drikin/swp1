@@ -87,6 +87,8 @@ const TrimPane: React.FC<TrimPaneProps> = ({
   const [outPoint, setOutPoint] = useState<number | null>(null);
   const [waveformData, setWaveformData] = useState<number[] | null>(null);
   const [isLoadingWaveform, setIsLoadingWaveform] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [fetchAttempts, setFetchAttempts] = useState(0);
   const waveformCanvasRef = useRef<HTMLCanvasElement>(null);
   const animationFrameId = useRef<number | null>(null);
 
@@ -155,53 +157,171 @@ const TrimPane: React.FC<TrimPaneProps> = ({
     };
   }, [selectedMedia]); // Re-run only when selectedMedia changes to start/stop loop
 
-  // Fetch waveform data when selectedMedia changes
-  useEffect(() => {
-    setIsLoadingWaveform(true);
+  // 波形データを取得する関数
+  const fetchWaveformData = useCallback(async (taskId: string) => {
+    console.log(`波形データを取得します（タスクID: ${taskId}）`);
+    
+    if (!window.api) {
+      console.error('API が利用できません');
+      return;
+    }
 
-    if (selectedMedia && selectedMedia.path && window.api) {
-      // 対象メディアのパスを取得
-      const filePath = selectedMedia.path;
+    try {
+      // タスク状態の確認
+      const taskStatus = await window.api.getTaskStatus(taskId);
+      console.log(`タスク状態: ${JSON.stringify(taskStatus)}`);
       
-      // パスが有効な場合のみ波形生成を実行
-      if (filePath) {
-        // 出力パスを指定（一時的なものなので実際のパスは重要ではありません）
-        const outputPath = 'memory';
-        window.api.generateWaveform(filePath, outputPath)
-          .then((data: { waveform: number[] }) => {
-            // データがある場合は波形を設定
-            if (data && data.waveform) {
-              setWaveformData(data.waveform);
-              
-              // 既存のトリム設定があれば復元
-              if (selectedMedia.trimStart !== undefined) {
-                setInPoint(selectedMedia.trimStart);
-              }
-              if (selectedMedia.trimEnd !== undefined) {
-                setOutPoint(selectedMedia.trimEnd);
-              }
+      // タスクが完了していない場合は終了
+      if (taskStatus && taskStatus.status !== 'completed') {
+        console.log(`タスクはまだ完了していません (status: ${taskStatus.status})`);
+        
+        // タスクが処理中の場合は再試行をスケジュール
+        if (taskStatus.status === 'processing') {
+          setFetchAttempts(prevAttempts => {
+            const newAttempts = prevAttempts + 1;
+            
+            // 最大10回まで試行（合計10秒）
+            if (newAttempts <= 10) {
+              console.log(`波形データ取得を再試行します (${newAttempts}/10)...`);
+              // 1秒後に再試行
+              setTimeout(() => fetchWaveformData(taskId), 1000);
+            } else {
+              console.warn('波形データ取得の最大試行回数に達しました');
+              setError('波形データの生成中にタイムアウトしました。');
             }
-            setIsLoadingWaveform(false);
-          })
-          .catch((err: Error) => {
-            console.error("Error generating waveform:", err);
-            setWaveformData([]);
-            setInPoint(null);
-            setOutPoint(null);
-            setIsLoadingWaveform(false);
+            
+            return newAttempts;
           });
-      } else {
-        console.error("Invalid file path for waveform generation");
+        }
+        
+        return;
+      }
+      
+      // このタスクの波形データを取得
+      const waveformData = await window.api.getWaveformData(taskId);
+      console.log('波形データを取得しました:', waveformData ? 'データあり' : 'データなし');
+      
+      if (!waveformData || !waveformData.data) {
+        console.error('有効な波形データがありません');
+        setError('波形データを取得できませんでした。');
+        return;
+      }
+      
+      // 成功: 波形データを状態に設定
+      setWaveformData(waveformData.data);
+      setIsLoadingWaveform(false);
+      setError(null);
+      
+    } catch (error) {
+      console.error('波形データ取得エラー:', error);
+      setError('波形データの取得中にエラーが発生しました。');
+      setIsLoadingWaveform(false);
+    }
+  }, []);
+
+  // メディアが変更されたときに波形データを読み込む
+  useEffect(() => {
+    if (!selectedMedia || !selectedMedia.path) {
+      console.log('有効なメディアファイルがありません');
+      return;
+    }
+
+    // ローディング状態をリセット
+    setIsLoadingWaveform(true);
+    setError(null);
+    setWaveformData(null);
+    setFetchAttempts(0);
+
+    // 1. まず既存の波形タスクを確認
+    // メディアパスに紐づくタスクを以前にgetTaskIdByMediaPath関数で取得
+    const checkExistingTask = async () => {
+      try {
+        console.log(`メディアファイルの波形データを確認: ${selectedMedia.path}`);
+        
+        // 以前の波形生成タスクがあるか確認
+        const existingTaskId = await window.api.getTaskIdByMediaPath(selectedMedia.path, 'waveform');
+        console.log('既存タスクID:', existingTaskId);
+        
+        if (existingTaskId) {
+          console.log(`既存の波形タスクが見つかりました: ${existingTaskId}`);
+          
+          // 既存タスクから波形データを取得
+          fetchWaveformData(existingTaskId);
+        } else {
+          console.log('既存の波形タスクが見つかりません。新しいタスクを作成します...');
+          
+          // 2. 波形データを生成する新しいタスクを作成
+          generateWaveform();
+        }
+      } catch (error) {
+        console.error('波形タスク確認エラー:', error);
+        setError('波形データの確認中にエラーが発生しました。');
         setIsLoadingWaveform(false);
       }
-    } else {
-        // Clear waveform and points if no media selected
-        setWaveformData(null);
-        setInPoint(null);
-        setOutPoint(null);
-        setIsLoadingWaveform(false);
+    };
+    
+    // 初期確認を実行
+    checkExistingTask();
+    
+    // tasks-updated イベントのリスナーを設定
+    const unsubscribe = window.api.on('tasks-updated', (data) => {
+      console.log('タスク更新イベント受信:', data);
+      
+      // 完了した波形タスクを探す
+      const completedWaveformTasks = data.tasks.filter(
+        (t: { type: string; status: string; mediaPath: string }) => 
+          t.type === 'waveform' && t.status === 'completed' && t.mediaPath === selectedMedia.path
+      );
+      
+      if (completedWaveformTasks.length > 0) {
+        const latestTask = completedWaveformTasks[0];
+        console.log('完了した波形タスクを検出:', latestTask.id);
+        
+        // 波形データを取得
+        fetchWaveformData(latestTask.id);
+      }
+    });
+    
+    // クリーンアップ時にリスナーを削除
+    return () => {
+      if (unsubscribe) unsubscribe();
+    };
+  }, [selectedMedia, fetchWaveformData]);
+
+  // 波形データを生成
+  const generateWaveform = async () => {
+    if (!selectedMedia || !selectedMedia.path || !window.api) {
+      console.error('波形を生成できません: 無効なメディアまたはAPI');
+      setError('波形を生成できません。メディアファイルが無効です。');
+      setIsLoadingWaveform(false);
+      return;
     }
-  }, [selectedMedia]); // Depend only on selectedMedia
+
+    try {
+      console.log(`波形生成開始: ${selectedMedia.path}`);
+      setIsLoadingWaveform(true);
+      setError(null);
+      
+      // 波形生成タスクを作成して実行
+      const response = await window.api.generateWaveform(selectedMedia.path);
+      console.log('波形生成タスク作成:', response);
+      
+      if (response && response.taskId) {
+        // タスクIDを保存（将来の参照用）
+        const taskId = response.taskId;
+        console.log(`波形生成タスクID: ${taskId}`);
+        
+        // 完了を待ってデータ取得
+        fetchWaveformData(taskId);
+      } else {
+        throw new Error('タスクIDが返されませんでした');
+      }
+    } catch (error) {
+      console.error('波形生成エラー:', error);
+      setError('波形の生成中にエラーが発生しました。');
+      setIsLoadingWaveform(false);
+    }
+  };
 
   const handleSetInPoint = useCallback(() => {
     if (!selectedMedia) return;

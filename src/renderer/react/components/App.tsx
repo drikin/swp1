@@ -184,12 +184,20 @@ const App: React.FC = () => {
   // アプリケーション起動時の処理
   useEffect(() => {
     // FFmpegバージョンの取得
-    if (window.api) {
+    try {
       window.api.checkFFmpeg().then((result: any) => {
-        setFfmpegVersion(`FFmpeg ${result.version || 'available'}`);
-      }).catch(() => {
+        // デバッグ用のログ出力
+        console.log('FFmpeg情報:', result);
+        
+        // HW/SWタグ付きのバージョンを優先的に使用
+        setFfmpegVersion(`FFmpeg ${result.versionWithHWTag || result.version || 'available'}`);
+      }).catch((error) => {
+        console.error('FFmpegチェックエラー:', error);
         setFfmpegVersion('FFmpeg not found');
       });
+    } catch (e) {
+      console.error('FFmpegチェックエラー:', e);
+      setFfmpegVersion('FFmpeg チェックエラー');
     }
 
     // ドラッグ&ドロップの設定
@@ -292,41 +300,146 @@ const App: React.FC = () => {
 
   // ラウドネス測定を開始する関数
   const startLoudnessMeasurement = async (media: any) => {
-    if (!window.api) return;
-    
-    // メディアとパスの検証
-    if (!media || !media.id || !media.path) {
-      console.error('ラウドネス測定エラー: 無効なメディアまたはパス', media);
-      return;
-    }
+    if (!media || !media.path) return;
     
     try {
-      // 測定中フラグを設定
-      setMediaFiles(prev => prev.map(m => 
-        m.id === media.id ? { ...m, isMeasuringLoudness: true } : m
-      ));
+      // すでに測定済みならスキップ
+      if (media.lufs !== undefined) {
+        console.log(`LUFSはすでに測定済みです: ${media.lufs} LUFS`);
+        return;
+      }
       
-      // バックグラウンドでラウドネス測定を実行（IDをパスと一緒に渡す）
-      const loudnessInfo = await window.api.measureLoudness(`${media.id}|${media.path}`);
+      console.log(`LUFS測定開始: ${media.path}`);
       
-      // 測定結果を反映
-      setMediaFiles(prev => prev.map(m => 
-        m.id === media.id ? { 
-          ...m, 
-          loudnessInfo, 
-          loudnessNormalization: true, 
-          isMeasuringLoudness: false 
-        } : m
-      ));
+      // メディアのLUFS測定状態を更新
+      const updatedMedia = { ...media, isMeasuringLUFS: true };
+      handleUpdateMedia(media.id, updatedMedia);
       
-      setStatus(`${media.name}のラウドネス測定が完了しました`);
+      // LUFS測定を実行
+      window.api.measureLoudness(media.path)
+        .then((result: any) => {
+          console.log('LUFS測定結果:', result);
+          
+          if (result && !result.error) {
+            // 成功時: クリップのLUFS値を更新
+            const lufsValue = parseFloat(result.integrated);
+            const updatedMediaWithLUFS = { 
+              ...media, 
+              lufs: lufsValue,
+              isMeasuringLUFS: false // 測定完了フラグを設定
+            };
+            handleUpdateMedia(media.id, updatedMediaWithLUFS);
+          } else {
+            // エラー時: 測定中フラグをクリア
+            console.error('LUFS測定エラー:', result?.error || '不明なエラー');
+            const updatedMediaError = { 
+              ...media, 
+              isMeasuringLUFS: false, 
+              lufsError: result?.error || '測定エラー' 
+            };
+            handleUpdateMedia(media.id, updatedMediaError);
+          }
+        })
+        .catch((error: Error) => {
+          // 例外発生時: 測定中フラグをクリア
+          console.error('LUFS測定例外:', error);
+          const updatedMediaException = { 
+            ...media, 
+            isMeasuringLUFS: false, 
+            lufsError: error.message 
+          };
+          handleUpdateMedia(media.id, updatedMediaException);
+        });
+      
+      // イベントリスナーもバックアップとして設定
+      const unsubscribeLoudness = window.api.on('loudness-measured', (data: any) => {
+        console.log('loudness-measured イベント受信:', data);
+        
+        // メディアIDが含まれている場合は更新
+        if (data.taskId) {
+          const lufsValue = parseFloat(data.integrated);
+          const updatedMediaWithLUFS = { 
+            ...media, 
+            lufs: lufsValue,
+            isMeasuringLUFS: false
+          };
+          handleUpdateMedia(media.id, updatedMediaWithLUFS);
+        }
+        
+        // リスナーをクリーンアップ
+        if (unsubscribeLoudness) unsubscribeLoudness();
+      });
+      
+      // エラーイベントリスナーも設定
+      const unsubscribeError = window.api.on('loudness-error', (data: any) => {
+        console.error('loudness-error イベント受信:', data);
+        
+        const updatedMediaError = { 
+          ...media, 
+          isMeasuringLUFS: false, 
+          lufsError: data.error || '測定エラー' 
+        };
+        handleUpdateMedia(media.id, updatedMediaError);
+        
+        // リスナーをクリーンアップ
+        if (unsubscribeError) unsubscribeError();
+      });
+      
+      // タスク状態の更新イベントも監視
+      const unsubscribeTaskUpdate = window.api.on('tasks-updated', (taskData: any) => {
+        // 完了タスクを確認
+        const completedTasks = taskData.tasks.filter((t: any) => 
+          t.status === 'completed' && t.type === 'loudness'
+        );
+        
+        // 最新のタスクをチェック
+        if (completedTasks.length > 0) {
+          const latestTask = completedTasks[0];
+          console.log('完了したラウドネスタスクを検出:', latestTask);
+          
+          // このメディアの測定中フラグをチェック
+          if (media.isMeasuringLUFS) {
+            console.log('測定中のメディアを完了済みに更新:', media.id);
+            const updatedMedia = { 
+              ...media, 
+              isMeasuringLUFS: false,
+              // ここでLUFS値が取得できていれば設定
+              // 実際のLUFS値はloudness-measuredイベントで設定されるため、
+              // ここでは測定中フラグのクリアが主目的
+            };
+            handleUpdateMedia(media.id, updatedMedia);
+            
+            // このイベントリスナーを削除
+            if (unsubscribeTaskUpdate) unsubscribeTaskUpdate();
+          }
+        }
+      });
+      
+      // 30秒後のタイムアウト処理
+      setTimeout(() => {
+        if (media.isMeasuringLUFS) {
+          console.log('ラウドネス測定がタイムアウトしました', media.id);
+          const updatedMediaTimeout = { 
+            ...media, 
+            isMeasuringLUFS: false, 
+            lufsError: 'ラウドネス測定がタイムアウトしました' 
+          };
+          handleUpdateMedia(media.id, updatedMediaTimeout);
+          
+          // リスナーをクリーンアップ
+          if (unsubscribeLoudness) unsubscribeLoudness();
+          if (unsubscribeError) unsubscribeError();
+          if (unsubscribeTaskUpdate) unsubscribeTaskUpdate();
+        }
+      }, 30000); // 30秒後
     } catch (error) {
-      console.error('ラウドネス測定エラー:', error);
-      // エラー状態を設定
-      setMediaFiles(prev => prev.map(m => 
-        m.id === media.id ? { ...m, isMeasuringLoudness: false, loudnessError: true } : m
-      ));
-      setStatus(`${media.name || 'メディア'}のラウドネス測定に失敗しました`);
+      console.error('LUFS測定実行エラー:', error);
+      const updatedMedia = { 
+        ...media, 
+        isMeasuringLUFS: false, 
+        lufsError: error instanceof Error ? error.message : '不明なエラー' 
+      };
+      handleUpdateMedia(media.id, updatedMedia);
     }
   };
 

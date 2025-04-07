@@ -209,27 +209,63 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
     }
 
     try {
+      console.log(`タイムラインからラウドネス測定開始: ${media.path}`);
+      
+      // 測定中フラグを設定
       setMeasuringLoudness(prev => ({
         ...prev,
         [media.id]: true
       }));
+      
+      // エラーフラグをリセット
+      setLoudnessErrors(prev => {
+        const newErrors = {...prev};
+        delete newErrors[media.id];
+        return newErrors;
+      });
 
-      // IDとパスを一緒に送信して、バックエンドで分離できるようにする
-      const loudnessInfo = await window.api.measureLoudness(`${media.id}|${media.path}`);
-      if (onUpdateMedia && !loudnessInfo.error) {
+      // メディアの更新も行う（isMeasuringLUFSフラグを設定）
+      if (onUpdateMedia) {
         onUpdateMedia(media.id, { 
-          loudnessInfo,
-          // デフォルトで有効にする
-          loudnessNormalization: true
+          isMeasuringLUFS: true,
+          loudnessError: null // エラーがあれば消去
         });
+      }
+
+      // ラウドネス測定リクエスト（メディアIDとパスを引数に渡す）
+      const result = await window.api.measureLoudness(media.path);
+      console.log('ラウドネス測定結果：', result);
+      
+      if (result && !result.error) {
+        // 成功時：メディア情報を更新
+        if (onUpdateMedia) {
+          const lufsValue = parseFloat(result.integrated);
+          onUpdateMedia(media.id, { 
+            lufs: lufsValue,
+            isMeasuringLUFS: false,
+            loudnessNormalization: true // デフォルトで有効化
+          });
+        }
+      } else {
+        throw new Error(result?.error || 'ラウドネス測定に失敗しました');
       }
     } catch (error) {
       console.error('ラウドネス測定エラー:', error);
+      // エラーフラグを設定
       setLoudnessErrors(prev => ({
         ...prev,
         [media.id]: true
       }));
+      
+      // メディアにもエラー情報を設定
+      if (onUpdateMedia) {
+        onUpdateMedia(media.id, { 
+          isMeasuringLUFS: false,
+          loudnessError: error instanceof Error ? error.message : '測定エラー'
+        });
+      }
     } finally {
+      // 測定中フラグを解除
       setMeasuringLoudness(prev => ({
         ...prev,
         [media.id]: false
@@ -423,13 +459,13 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
                                 
                                 {/* ラウドネス情報の表示 */}
                                 <div className="media-loudness">
-                                  {media.loudnessInfo ? (
+                                  {media.lufs !== undefined ? (
                                     <div className="loudness-info">
                                       <div className="loudness-value">
-                                        現在: {formatLoudness(media.loudnessInfo.inputIntegratedLoudness)}
-                                        {media.loudnessInfo.lufsGain !== undefined && (
-                                          <span className={media.loudnessInfo.lufsGain > 0 ? 'gain-positive' : 'gain-negative'}>
-                                            {media.loudnessInfo.lufsGain > 0 ? '+' : ''}{media.loudnessInfo.lufsGain.toFixed(1)}dB
+                                        ラウドネス: {media.lufs.toFixed(1)} LUFS
+                                        {media.lufsGain !== undefined && (
+                                          <span className={media.lufsGain > 0 ? 'gain-positive' : 'gain-negative'}>
+                                            {media.lufsGain > 0 ? '+' : ''}{media.lufsGain.toFixed(1)}dB
                                           </span>
                                         )}
                                       </div>
@@ -447,7 +483,7 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
                                     </div>
                                   ) : (
                                     <div className="loudness-status">
-                                      {media.isMeasuringLoudness ? (
+                                      {media.isMeasuringLUFS ? (
                                         <div className="measuring-indicator">
                                           <span className="spinner"></span>
                                           <span>ラウドネス測定中...</span>
@@ -455,10 +491,21 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
                                       ) : loudnessErrors[media.id] || media.loudnessError ? (
                                         <div className="error-indicator">
                                           <span>測定エラー</span>
+                                          <button 
+                                            onClick={(e) => handleMeasureLoudness(media, e)} 
+                                            className="retry-button"
+                                          >
+                                            再試行
+                                          </button>
                                         </div>
                                       ) : (
                                         <div className="waiting-indicator">
-                                          <span>ラウドネス情報を取得中...</span>
+                                          <button 
+                                            onClick={(e) => handleMeasureLoudness(media, e)} 
+                                            className="measure-button"
+                                          >
+                                            ラウドネス測定
+                                          </button>
                                         </div>
                                       )}
                                     </div>

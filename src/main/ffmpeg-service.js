@@ -153,17 +153,21 @@ function processFFmpegTask(taskId, args, options = {}) {
       
       if (currentTask) {
         const processingTime = endTime - currentTask.startTime;
+        const newStatus = code === 0 ? 'completed' : 'error';
         
         taskQueue.set(taskId, {
           ...currentTask,
-          status: code === 0 ? 'completed' : 'failed',
+          status: newStatus,
           progress: code === 0 ? 100 : currentTask.progress || 0,
           stdout,
           stderr,
           exitCode: code,
           processingTime,
-          endTime
+          endTime,
+          error: code !== 0 ? `FFmpegプロセスが異常終了 (コード: ${code})` : null
         });
+        
+        console.log(`[${taskId}] タスク状態を "${newStatus}" に更新しました (処理時間: ${processingTime}ms)`);
       }
       
       if (code === 0) {

@@ -114,6 +114,7 @@ const TaskItem: React.FC<TaskItemProps> = ({ task }) => {
         primary={
           <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 0.5 }}>
             <Typography 
+              component="span" 
               variant="body2" 
               sx={{ 
                 fontWeight: isActive ? 'medium' : 'normal',
@@ -141,6 +142,7 @@ const TaskItem: React.FC<TaskItemProps> = ({ task }) => {
               />
               
               <Typography 
+                component="span" 
                 variant="caption" 
                 sx={{ 
                   whiteSpace: 'nowrap',
@@ -180,7 +182,7 @@ const TaskItem: React.FC<TaskItemProps> = ({ task }) => {
           </Box>
         }
         secondary={
-          <>
+          <Box component="div">
             {showProgress && (
               <Box sx={{ mt: 1, mb: 1 }}>
                 <LinearProgress 
@@ -192,7 +194,7 @@ const TaskItem: React.FC<TaskItemProps> = ({ task }) => {
                     mb: 0.5
                   }}
                 />
-                <Typography variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'right' }}>
+                <Typography component="div" variant="caption" color="text.secondary" sx={{ display: 'block', textAlign: 'right' }}>
                   {task.progress.toFixed(0)}%
                 </Typography>
               </Box>
@@ -209,7 +211,7 @@ const TaskItem: React.FC<TaskItemProps> = ({ task }) => {
                   borderRadius: 1
                 }}
               >
-                <Typography variant="caption" color="error.main" sx={{ display: 'block' }}>
+                <Typography component="div" variant="caption" color="error.main" sx={{ display: 'block' }}>
                   エラー: {task.error}
                 </Typography>
               </Paper>
@@ -217,6 +219,7 @@ const TaskItem: React.FC<TaskItemProps> = ({ task }) => {
             
             {task.details && !task.error && (
               <Typography 
+                component="div"
                 variant="caption" 
                 color="text.secondary" 
                 sx={{ 
@@ -229,7 +232,7 @@ const TaskItem: React.FC<TaskItemProps> = ({ task }) => {
                 {task.details}
               </Typography>
             )}
-          </>
+          </Box>
         }
       />
     </ListItem>

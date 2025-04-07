@@ -6,7 +6,12 @@ const url = require('url');
 const { spawn } = require('child_process');
 const { execSync } = require('child_process');
 const ffmpegServiceManager = require('./ffmpeg-service-manager');
-const taskManager = require('./task-manager'); 
+
+// 新しいタスク管理システムをインポート
+const { initializeTaskSystem } = require('./task-init');
+
+// グローバルの参照を保持
+let globalTaskManager = null;
 
 // システムのFFmpegパスを動的に取得
 let ffmpegPath = '/opt/homebrew/bin/ffmpeg'; // デフォルトパスを設定
@@ -68,22 +73,69 @@ function createWindow() {
 // Electronの初期化が完了したらウィンドウを作成
 app.whenReady().then(async () => {
   try {
+    console.log('====== アプリケーション起動シーケンス開始 ======');
+    
     // FFmpegのパスを保存（既にグローバル変数で設定済み）
     global.ffmpegPath = ffmpegPath;
     
     console.log('FFmpeg path:', ffmpegPath);
     
     // ウィンドウを作成
+    console.log('メインウィンドウを作成します...');
     createWindow();
+    console.log('メインウィンドウ作成完了');
     
     // 一時ディレクトリを作成
     if (!fs.existsSync(tempDir)) {
       fs.mkdirSync(tempDir, { recursive: true });
     }
+    console.log('一時ディレクトリの確認完了');
+    
+    // 新しいタスク管理システムを初期化
+    try {
+      console.log('タスク管理システムの初期化を開始します...');
+      globalTaskManager = initializeTaskSystem(ipcMain);
+      console.log('initializeTaskSystem結果:', globalTaskManager ? 'インスタンス生成成功' : 'インスタンス生成失敗');
+      
+      if (globalTaskManager) {
+        console.log('globalTaskManagerを設定しました');
+        
+        // メインウィンドウを設定
+        if (mainWindow) {
+          globalTaskManager.setMainWindow(mainWindow);
+          console.log('メインウィンドウをタスクマネージャーに設定しました');
+        }
+        
+        // タスク管理システムのイベントリスナーを設定
+        setupTaskEventListeners();
+        console.log('タスクイベントリスナーを設定しました');
+        
+        // タスク管理システムが正しく初期化されたか確認
+        console.log('タスクマネージャーのメソッド:',
+          'getAllTasks:', typeof globalTaskManager.getAllTasks,
+          'getTaskById:', typeof globalTaskManager.getTaskById,
+          'getTasksByMedia:', typeof globalTaskManager.getTasksByMedia
+        );
+      } else {
+        console.error('タスク管理システムの初期化に失敗: taskManagerがnullです');
+      }
+    } catch (error) {
+      console.error('タスク管理システムの初期化エラー:', error);
+    }
     
     // FFmpegサービスの起動
     ffmpegServiceManager.start().catch(error => {
       console.error('FFmpegサービス起動エラー:', error);
+    });
+    
+    // FFmpegサービスの準備が完了したらハードウェアエンコード対応確認を実行
+    ffmpegServiceManager.onReady(() => {
+      console.log('FFmpegサービスの準備が完了しました。ハードウェアエンコード対応確認を実行します。');
+      checkVideoToolboxSupport().then(hwaccelSupport => {
+        console.log('VideoToolbox対応状況確認完了:', hwaccelSupport);
+      }).catch(error => {
+        console.error('VideoToolbox対応確認エラー:', error);
+      });
     });
     
     // ファイルのドラッグ&ドロップを許可
@@ -106,17 +158,56 @@ app.on('window-all-closed', () => {
     ffmpegServiceManager.stop().finally(() => {
       app.quit();
     });
-  } else {
-    app.quit();
   }
 });
 
+// アプリ終了フラグ
+let isQuitting = false;
+
 // アプリが終了する前にクリーンアップ
-app.on('before-quit', () => {
-  // FFmpegサービスの停止
-  ffmpegServiceManager.stop().catch(error => {
-    console.error('FFmpegサービス停止エラー:', error);
-  });
+app.on('before-quit', async (event) => {
+  // 初回の終了イベントでは終了をキャンセルし、クリーンアップを実行
+  if (!isQuitting) {
+    // 終了プロセスを一度だけ実行
+    event.preventDefault();
+    isQuitting = true;
+    
+    console.log('アプリケーション終了処理を開始します...');
+    
+    try {
+      // 新しいタスク管理システムのデータを保存
+      if (globalTaskManager) {
+        console.log('タスク状態を保存しています...');
+        await globalTaskManager._saveTasks().catch(error => {
+          console.error('タスク状態の保存エラー:', error);
+        });
+        
+        // すべてのタスクをキャンセル
+        console.log('実行中のタスクをキャンセルしています...');
+        await globalTaskManager.cancelAllTasks().catch(error => {
+          console.error('タスクキャンセルエラー:', error);
+        });
+      }
+      
+      // FFmpegサービスの停止と残存FFmpegプロセスの終了
+      console.log('FFmpegサービスを停止し、残存プロセスを終了します...');
+      await ffmpegServiceManager.stop().catch(error => {
+        console.error('FFmpegサービス停止エラー:', error);
+      });
+      
+      // 残存FFmpegプロセスを強制終了（念のため）
+      console.log('残存FFmpegプロセスの強制終了を確認します...');
+      await ffmpegServiceManager.killAllFFmpegProcesses().catch(error => {
+        console.error('FFmpegプロセス強制終了エラー:', error);
+      });
+    } catch (error) {
+      console.error('アプリケーション終了処理エラー:', error);
+    } finally {
+      console.log('アプリケーション終了処理が完了しました、終了します');
+      // 終了処理が完了したため、アプリケーションを終了
+      setTimeout(() => app.quit(), 500);
+    }
+  }
 });
 
 // アプリがアクティブになったときの処理 (macOS)
@@ -295,22 +386,13 @@ async function runFFprobeCommand(args) {
       
       process.on('close', (code) => {
         if (code === 0) {
-          console.log('FFprobe処理成功');
           resolve({ stdout, stderr });
         } else {
-          console.error(`FFprobe処理失敗 (コード ${code}):`);
-          // エラーの概要のみを出力
-          const errorSummary = stderr.split('\n')
-            .filter(line => line.includes('Error') || line.includes('failed') || line.includes('Invalid'))
-            .slice(0, 10)
-            .join('\n');
-          console.error('エラー概要:', errorSummary || 'エラー詳細が見つかりません');
-          reject(new Error(`FFprobe process exited with code ${code}: ${stderr}`));
+          reject(new Error(`FFprobe process exited with code ${code}`));
         }
       });
       
       process.on('error', (err) => {
-        console.error('FFprobeプロセスエラー:', err);
         reject(err);
       });
     });
@@ -461,9 +543,8 @@ function getFilesRecursively(dir) {
             const stats = fs.statSync(fullPath);
             const fileObj = {
               id: fileId,
-              path: fullPath,
               name: entry.name,
-              type: SUPPORTED_EXTENSIONS.video.includes(ext) ? 'video' : 'image',
+              path: fullPath,
               size: stats.size,
               lastModified: stats.mtime
             };
@@ -502,21 +583,69 @@ function getFilesRecursively(dir) {
 // VideoToolboxサポートをチェックする共通関数
 async function checkVideoToolboxSupport() {
   try {
-    const codecsResult = await runFFmpegCommand(['-encoders']);
-    const hasH264HW = codecsResult.stdout.includes('h264_videotoolbox');
-    const hasHEVCHW = codecsResult.stdout.includes('hevc_videotoolbox');
+    // 複数の方法を組み合わせて検出
+    let hasVideoToolbox = false;
     
+    // 方法1: hwaccelsコマンドでの検出
+    try {
+      const hwaccelsResult = await runFFmpegCommand(['-hwaccels']);
+      console.log('FFmpeg利用可能ハードウェアアクセラレーション:', hwaccelsResult.stdout);
+      if (hwaccelsResult.stdout.includes('videotoolbox')) {
+        hasVideoToolbox = true;
+        console.log('hwaccelsコマンドでVideoToolboxを検出しました');
+      }
+    } catch (err) {
+      console.warn('hwaccelsコマンド実行エラー:', err);
+    }
+    
+    // 方法2: encodersの詳細出力での検出
+    if (!hasVideoToolbox) {
+      try {
+        const encodersResult = await runFFmpegCommand(['-encoders']);
+        console.log('FFmpegエンコーダー出力（一部）:', encodersResult.stdout.slice(0, 200) + '...');
+        if (encodersResult.stdout.includes('videotoolbox')) {
+          hasVideoToolbox = true;
+          console.log('encodersコマンドでVideoToolboxを検出しました');
+        }
+      } catch (err) {
+        console.warn('encodersコマンド実行エラー:', err);
+      }
+    }
+    
+    // 方法3: OSによる判定（最終手段）
+    const isMac = process.platform === 'darwin';
+    if (!hasVideoToolbox && isMac) {
+      // macOSなら基本的にVideoToolboxが使える
+      console.log('OS検出によりmacOSを検出、VideoToolboxが利用可能と仮定します');
+      hasVideoToolbox = true;
+    }
+    
+    // 結果を返す
     const hwaccelSupport = {
-      h264: hasH264HW,
-      hevc: hasHEVCHW
+      h264: hasVideoToolbox,
+      hevc: hasVideoToolbox,
+      isHardwareAccelerated: hasVideoToolbox,
+      supportedCodecs: hasVideoToolbox ? ['h264_videotoolbox', 'hevc_videotoolbox'] : [],
+      hwaccelEngine: hasVideoToolbox ? 'videotoolbox' : null,
+      detectionMethod: hasVideoToolbox ? 
+        (hwaccelsResult?.stdout?.includes('videotoolbox') ? 'hwaccels' : 
+         (encodersResult?.stdout?.includes('videotoolbox') ? 'encoders' : 'os-detection')) : 'none'
     };
     
-    console.log('VideoToolbox対応状況:', hwaccelSupport);
+    console.log('VideoToolbox対応状況（複合検出）:', hwaccelSupport);
     return hwaccelSupport;
   } catch (error) {
     console.warn('ハードウェアエンコード対応確認エラー:', error);
-    // デフォルト値を返す
-    return { h264: false, hevc: false };
+    // macOSのデフォルト値
+    const isMac = process.platform === 'darwin';
+    return { 
+      h264: isMac, 
+      hevc: isMac, 
+      isHardwareAccelerated: isMac,
+      supportedCodecs: isMac ? ['h264_videotoolbox', 'hevc_videotoolbox'] : [],
+      hwaccelEngine: isMac ? 'videotoolbox' : null,
+      detectionMethod: 'fallback'
+    };
   }
 }
 
@@ -557,9 +686,25 @@ ipcMain.handle('check-ffmpeg', async () => {
     // ハードウェアアクセラレーションサポートの確認
     const hwaccelSupport = await checkVideoToolboxSupport();
     
+    // ハードウェアアクセラレーション状態を表示するためのタグを追加
+    const hwTag = hwaccelSupport.isHardwareAccelerated ? '(HW)' : '(SW)';
+    const versionWithHWTag = `${version} ${hwTag}`;
+    
+    // デバッグログ - レンダラープロセスに送る情報を確認
+    console.log('FFmpeg情報（送信データ）:', {
+      available: true,
+      version: version,
+      versionWithHWTag: versionWithHWTag,
+      hwTag: hwTag,
+      hwaccel: hwaccelSupport
+    });
+    
+    // レンダラープロセスに結果を返す（修正済み）
     return { 
       available: true, 
       version: version,
+      versionWithHWTag: versionWithHWTag,
+      hwTag: hwTag,
       path: ffmpegPath,
       hwaccel: hwaccelSupport
     };
@@ -695,518 +840,17 @@ async function getMediaInfo(filePath) {
 }
 
 // IPC通信でメディア情報取得を提供
+/* 重複登録のため削除
 ipcMain.handle('get-media-info', async (event, filePath) => {
   return await getMediaInfo(filePath);
 });
+*/
 
-// IPC通信でサムネイル生成を提供
-ipcMain.handle('generate-thumbnail', async (event, options) => {
-  // パラメータ形式の統一（オブジェクトか個別パラメータか）
-  let filePath, fileId;
-  
-  if (typeof options === 'object') {
-    filePath = options.filePath;
-    fileId = options.fileId;
-  } else {
-    filePath = options;
-    fileId = null;
-  }
-  
-  if (!filePath) {
-    console.error('サムネイル生成エラー: ファイルパスが指定されていません');
-    return null;
-  }
-  
-  return await generateThumbnail(filePath, fileId);
-});
+// サムネイル生成ハンドラーもtask-api.jsに統合済み
+// 'generate-thumbnail'ハンドラーは削除しました
 
-// LUFSを測定キューとキャッシュ
-const loudnessQueue = [];
-const loudnessCache = new Map();
-let isProcessingLoudness = false;
-
-// キューを順次処理するプロセッサー
-async function processLoudnessQueue() {
-  if (isProcessingLoudness || loudnessQueue.length === 0) return;
-  
-  isProcessingLoudness = true;
-  
-  try {
-    const item = loudnessQueue.shift();
-    const { filePath, fileId, originalPath, resolve, reject } = item;
-    
-    // キャッシュに存在するかチェック
-    const cacheKey = originalPath;
-    if (loudnessCache.has(cacheKey)) {
-      console.log('ラウドネスキャッシュからデータを使用:', cacheKey);
-      const cachedData = loudnessCache.get(cacheKey);
-      
-      // イベント通知（メイン処理とは別に行う）
-      if (mainWindow) {
-        mainWindow.webContents.send('loudness-measured', {
-          id: fileId,
-          loudnessInfo: cachedData
-        });
-      }
-      
-      resolve(cachedData);
-    } else {
-      // 実際に測定を実行
-      try {
-        const result = await measureLoudnessInternal(filePath);
-        
-        // キャッシュに保存
-        loudnessCache.set(cacheKey, result);
-        
-        // イベント通知（メイン処理とは別に行う）
-        if (mainWindow) {
-          mainWindow.webContents.send('loudness-measured', {
-            id: fileId,
-            loudnessInfo: result
-          });
-        }
-        
-        resolve(result);
-      } catch (error) {
-        console.error('ラウドネス測定エラー:', error);
-        
-        // エラーイベントを発行
-        if (mainWindow && fileId) {
-          mainWindow.webContents.send('loudness-error', { id: fileId });
-        }
-        
-        reject(error);
-      }
-    }
-  } catch (error) {
-    console.error('ラウドネスキュー処理エラー:', error);
-  } finally {
-    isProcessingLoudness = false;
-    
-    // キューに残りがあれば続けて処理
-    if (loudnessQueue.length > 0) {
-      processLoudnessQueue();
-    }
-  }
-}
-
-// LUFS測定関数 (ITU-R BS.1770-3準拠) - 内部実装
-async function measureLoudnessInternal(filePath) {
-  try {
-    // パスの検証
-    if (!filePath || typeof filePath !== 'string') {
-      console.error('無効なファイルパスでのLUFS測定:', filePath);
-      throw new Error('Invalid file path for loudness measurement');
-    }
-    
-    // ファイルの存在確認
-    if (!fs.existsSync(filePath)) {
-      console.error('存在しないファイルでのLUFS測定:', filePath);
-      throw new Error(`File not found: ${filePath}`);
-    }
-    
-    console.log('LUFSの測定開始:', filePath);
-    
-    // メディア情報を取得して動画の長さを確認
-    const mediaInfo = await getMediaInfo(filePath);
-    const duration = mediaInfo.duration || 0;
-    
-    if (!duration || duration <= 0) {
-      console.error('動画の長さが取得できないか無効です:', duration);
-      throw new Error('Invalid media duration for loudness measurement');
-    }
-    
-    // 短い動画（10秒未満）の場合は全体を測定、それ以外は部分測定
-    const isBriefClip = duration < 10;
-    
-    // サンプリング時間の設定（最大30秒、または動画の長さの15%のいずれか短い方）
-    const sampleDuration = isBriefClip ? duration : Math.min(30, duration * 0.15);
-    
-    // 動画の前半部分から測定（前半の方が音声パターンの特徴がよく出ることが多い）
-    // 先頭すぎるとイントロやタイトルの無音部分などがあるので少し先にする
-    const startOffset = isBriefClip ? 0 : Math.min(duration * 0.1, 30);
-    
-    // 解析コマンドを構築 - ffmpeg 7.1.1に最適化
-    const args = [
-      '-hide_banner',
-      '-nostats'
-    ];
-    
-    // 短くない動画の場合のみシーク指定を追加
-    if (!isBriefClip) {
-      args.push('-ss', `${startOffset}`);
-      args.push('-t', `${sampleDuration}`);
-    }
-    
-    // 入力ファイルと解析フィルタを追加
-    args.push(
-      '-i', filePath,
-      '-filter:a', 'loudnorm=I=-16:TP=-1.5:LRA=11:print_format=json',
-      '-f', 'null',
-      '-'
-    );
-    
-    // タスクIDを生成して監視
-    const fileId = path.basename(filePath, path.extname(filePath));
-    const taskId = taskManager.createTask({
-      type: 'loudness',
-      fileId: fileId,
-      fileName: path.basename(filePath)
-    });
-    
-    console.log('ラウドネス測定コマンド:', args.join(' '));
-    
-    try {
-      // タスク状態の更新
-      taskManager.updateTask(taskId, { 
-        status: 'processing',
-        progress: 10,
-        details: 'ラウドネス測定の前処理中...'
-      });
-      
-      // FFmpegServiceManagerを使用して処理を実行
-      const ffmpegResponse = await ffmpegServiceManager.processFFmpeg(args, {
-        taskId,
-        type: 'loudness',
-        filePath: filePath
-      });
-      
-      // 返されたタスクIDが異なる場合は更新
-      const actualTaskId = ffmpegResponse.taskId || taskId;
-      
-      // 進捗イベントのリスナーを設定
-      const progressListener = (id, progress) => {
-        if (id === actualTaskId) {
-          taskManager.updateTask(taskId, { 
-            progress: progress.percent || 0,
-            details: progress.details || 'ラウドネス測定処理中...'
-          });
-        }
-      };
-      
-      // 完了イベントのリスナー
-      const completionListener = (id, result) => {
-        if (id === actualTaskId) {
-          taskManager.updateTask(taskId, { 
-            status: 'completed',
-            progress: 100,
-            details: 'ラウドネス測定完了'
-          });
-          ffmpegServiceManager.removeListener('task-progress', progressListener);
-          ffmpegServiceManager.removeListener('task-completed', completionListener);
-          ffmpegServiceManager.removeListener('task-error', errorListener);
-        }
-      };
-      
-      // エラーイベントのリスナー
-      const errorListener = (id, error) => {
-        if (id === actualTaskId) {
-          console.error(`ラウドネス測定エラー[${id}]:`, error);
-          taskManager.updateTask(taskId, { 
-            status: 'error',
-            error: error.message || 'ラウドネス測定中にエラーが発生しました',
-            details: error.details || null
-          });
-          ffmpegServiceManager.removeListener('task-progress', progressListener);
-          ffmpegServiceManager.removeListener('task-completed', completionListener);
-          ffmpegServiceManager.removeListener('task-error', errorListener);
-        }
-      };
-      
-      // イベントリスナーを登録
-      ffmpegServiceManager.on('task-progress', progressListener);
-      ffmpegServiceManager.on('task-completed', completionListener);
-      ffmpegServiceManager.on('task-error', errorListener);
-      
-      // 10秒後にタスク状態をチェック - 処理が止まっているかを確認
-      setTimeout(async () => {
-        try {
-          const status = await ffmpegServiceManager.getTaskStatus(actualTaskId);
-          if (status && (status.status === 'queued' || status.status === 'processing')) {
-            console.log(`ラウドネス測定タスク[${actualTaskId}]は進行中です。状態:`, status.status);
-          }
-        } catch (err) {
-          console.error(`タスク[${actualTaskId}]の状態確認エラー:`, err);
-        }
-      }, 10000);
-      
-      // FFmpegの出力を取得
-      const { stderr } = await new Promise((resolve, reject) => {
-        // 完了を監視するため、タイムアウトを設定 (最大3分)
-        const timeout = setTimeout(() => {
-          console.log(`ラウドネス測定タスク[${actualTaskId}]がタイムアウトしました`);
-          ffmpegServiceManager.removeListener('task-completed', onComplete);
-          ffmpegServiceManager.removeListener('task-error', onError);
-          
-          // タイムアウト時にUIに通知するためのイベントを明示的に発行
-          if (mainWindow && fileId) {
-            mainWindow.webContents.send('loudness-error', { 
-              id: fileId,
-              error: 'タイムアウト'
-            });
-          }
-          
-          reject(new Error('ラウドネス測定がタイムアウトしました'));
-        }, 3 * 60 * 1000);
-        
-        // 完了イベントを監視
-        const onComplete = (id, result) => {
-          if (id === actualTaskId) {
-            clearTimeout(timeout);
-            resolve({ stderr: result && result.stderr ? result.stderr : '' });
-          }
-        };
-        
-        // エラーイベントを監視
-        const onError = (id, error) => {
-          if (id === actualTaskId) {
-            clearTimeout(timeout);
-            reject(new Error(error.message || 'ラウドネス測定中にエラーが発生しました'));
-          }
-        };
-        
-        ffmpegServiceManager.once('task-completed', onComplete);
-        ffmpegServiceManager.once('task-error', onError);
-      });
-      
-      // 正規表現でJSON部分を抽出 - より堅牢な抽出パターン
-      const jsonRegex = /\{[\s\S]*?input_i[\s\S]*?input_tp[\s\S]*?input_lra[\s\S]*?input_thresh[\s\S]*?target_offset[\s\S]*?\}/;
-      const jsonMatch = stderr.match(jsonRegex);
-      
-      if (!jsonMatch) {
-        throw new Error('ラウドネス解析の出力からJSONデータが取得できませんでした');
-      }
-      
-      let loudnessData;
-      try {
-        loudnessData = JSON.parse(jsonMatch[0]);
-      } catch (jsonError) {
-        console.error('JSONの解析に失敗しました:', jsonMatch[0]);
-        throw new Error('ラウドネス解析の結果JSONの解析に失敗しました');
-      }
-      
-      // NaNをチェックして修正する関数
-      const safeParseFloat = (value, defaultValue = 0) => {
-        const parsed = parseFloat(value);
-        return isNaN(parsed) ? defaultValue : parsed;
-      };
-      
-      // 測定完了を通知
-      taskManager.updateTask(taskId, { 
-        status: 'completed',
-        progress: 100,
-        details: 'ラウドネス測定完了'
-      });
-      
-      // 測定結果を作成
-      const loudnessResult = {
-        // 入力時のラウドネス値
-        inputIntegratedLoudness: safeParseFloat(loudnessData.input_i, -24),
-        inputTruePeak: safeParseFloat(loudnessData.input_tp, 0),
-        inputLRA: safeParseFloat(loudnessData.input_lra, 7),
-        inputThreshold: safeParseFloat(loudnessData.input_thresh, -34),
-        
-        // ターゲット値
-        targetIntegratedLoudness: safeParseFloat(loudnessData.target_i, -16),
-        targetTruePeak: safeParseFloat(loudnessData.target_tp, -1.5),
-        targetLRA: safeParseFloat(loudnessData.target_lra, 11),
-        targetThreshold: safeParseFloat(loudnessData.target_thresh, -26),
-        
-        // -14 LUFSにするためのゲイン値（検出できなければデフォルト -6dB）
-        lufsGain: safeParseFloat(-14 - loudnessData.input_i, -6)
-      };
-      
-      // 測定結果をUIに直接通知（イベント送信）
-      console.log(`ラウドネス測定結果を送信 [ID: ${fileId}]:`, loudnessResult);
-      if (mainWindow && fileId) {
-        mainWindow.webContents.send('loudness-measured', {
-          id: fileId,
-          loudnessInfo: loudnessResult
-        });
-      }
-      
-      return loudnessResult;
-    } catch (ffmpegError) {
-      console.error('FFmpeg実行エラー:', ffmpegError);
-      
-      // エラー時にタスク状態を更新
-      taskManager.updateTask(taskId, { 
-        status: 'error',
-        error: ffmpegError.message || 'FFmpeg実行中にエラーが発生しました'
-      });
-      
-      throw ffmpegError;
-    }
-  } catch (error) {
-    console.error('LUFS測定エラー:', error);
-    throw error;
-  }
-}
-
-// 外部公開用のLUFS測定関数（キューベースのラッパー）
-async function measureLoudness(filePathWithId) {
-  return new Promise((resolve, reject) => {
-    // パラメータのチェック
-    if (!filePathWithId || typeof filePathWithId !== 'string') {
-      console.error('無効なファイルパス/ID形式:', filePathWithId);
-      return reject(new Error('Invalid file path or ID format'));
-    }
-    
-    // ファイルIDとパスを分離
-    const [fileId, filePath] = filePathWithId.includes('|') 
-      ? filePathWithId.split('|')
-      : [null, filePathWithId];
-    
-    // パスの検証
-    if (!filePath || typeof filePath !== 'string' || filePath === 'undefined' || filePath === 'null') {
-      console.error('ラウドネス測定：無効なファイルパス:', filePath);
-      return reject(new Error('Invalid file path for loudness measurement'));
-    }
-    
-    // ファイルの存在確認は非同期処理で実行されるため、ここではスキップし、
-    // 内部実装（measureLoudnessInternal）でチェックする
-
-    // キューに追加
-    loudnessQueue.push({
-      filePath,
-      fileId,
-      originalPath: filePath,
-      resolve,
-      reject
-    });
-    
-    // 処理開始
-    processLoudnessQueue();
-  });
-}
-
-// IPC通信でLUFSの測定を提供
-ipcMain.handle('measure-loudness', async (event, filePath) => {
-  try {
-    // パスのチェック
-    if (!filePath || typeof filePath !== 'string') {
-      console.error('無効なファイルパスでのLUFS測定リクエスト:', filePath);
-      throw new Error('Invalid file path for loudness measurement request');
-    }
-    
-    return await measureLoudness(filePath);
-  } catch (error) {
-    console.error('ラウドネス測定エラー:', error);
-    
-    // エラーイベントを発行
-    // ファイルIDを含む引数形式を想定
-    const fileId = filePath && filePath.includes && filePath.includes('|') ? filePath.split('|')[0] : null;
-    if (mainWindow && fileId) {
-      mainWindow.webContents.send('loudness-error', { id: fileId });
-    }
-    
-    return { error: error.message };
-  }
-});
-
-// 波形データを生成
-ipcMain.handle('generate-waveform', async (event, filePath, outputPath) => {
-  try {
-    // ファイルパスの検証
-    if (!filePath || typeof filePath !== 'string') {
-      throw new Error('有効なファイルパスが指定されていません');
-    }
-    
-    if (!fs.existsSync(filePath)) {
-      throw new Error(`ファイルが存在しません: ${filePath}`);
-    }
-    
-    console.log('波形データ生成開始:', filePath);
-    
-    // PCM音声データを抽出
-    const pcmOutputPath = outputPath || path.join(app.getPath('temp'), `${path.basename(filePath, path.extname(filePath))}_${Date.now()}.pcm`);
-    
-    // 直接FFmpegコマンドを実行（新しい方法）
-    const { spawn } = require('child_process');
-    
-    await new Promise((resolve, reject) => {
-      console.log('PCM音声データ抽出コマンド実行中...');
-      const process = spawn(ffmpegPath, [
-        '-i', filePath,
-        '-f', 's16le',  // 16ビット符号付き整数（リトルエンディアン）形式
-        '-acodec', 'pcm_s16le',
-        '-ac', '1',     // モノラルに変換
-        '-ar', '44100', // サンプリングレート44.1kHz
-        pcmOutputPath
-      ]);
-      
-      process.stderr.on('data', (data) => {
-        console.log('FFmpeg 波形抽出:', data.toString().trim());
-      });
-      
-      process.on('close', (code) => {
-        if (code === 0) {
-          console.log('PCM抽出成功:', pcmOutputPath);
-          resolve();
-        } else {
-          reject(new Error(`音声データ抽出に失敗しました (コード: ${code})`));
-        }
-      });
-      
-      process.on('error', (err) => {
-        reject(new Error(`FFmpegプロセスエラー: ${err.message}`));
-      });
-    });
-    
-    console.log('PCMファイル読み込み中...');
-    
-    // PCMファイルの内容を読み取る
-    const pcmData = fs.readFileSync(pcmOutputPath);
-    
-    // Int16Array に変換
-    const waveformData = new Int16Array(new Uint8Array(pcmData).buffer);
-    
-    console.log(`波形データ生成: ${waveformData.length}サンプル`);
-    
-    // ファイルサイズが大きい場合はダウンサンプリング
-    const maxSamples = 10000; // 適切なサイズに調整
-    let downsampled;
-    
-    if (waveformData.length > maxSamples) {
-      downsampled = new Int16Array(maxSamples);
-      const step = Math.floor(waveformData.length / maxSamples);
-      
-      for (let i = 0; i < maxSamples; i++) {
-        // 各ステップの最大絶対値を取得（波形の詳細を保持）
-        let maxValue = 0;
-        for (let j = 0; j < step; j++) {
-          const idx = i * step + j;
-          if (idx < waveformData.length) {
-            const abs = Math.abs(waveformData[idx]);
-            if (abs > maxValue) maxValue = abs;
-          }
-        }
-        downsampled[i] = maxValue;
-      }
-    } else {
-      downsampled = waveformData;
-    }
-    
-    // 一時ファイルを削除
-    try {
-      fs.unlinkSync(pcmOutputPath);
-      console.log('一時PCMファイルを削除しました');
-    } catch (err) {
-      console.warn('一時ファイル削除エラー:', err);
-    }
-    
-    console.log('波形データ生成完了');
-    
-    return {
-      success: true,
-      waveform: Array.from(downsampled), // ArrayBufferをJSONで送信可能な通常の配列に変換
-      sampleRate: 44100
-    };
-  } catch (error) {
-    console.error('波形生成エラー:', error);
-    return { success: false, error: error.message };
-  }
-});
+// 以下の旧式のLUFS測定関連コードは新しいタスク管理システムに統合済みのため削除しました
+// ラウドネス測定処理は task-api.js の measure-loudness ハンドラーを使用してください
 
 // 進捗更新関数
 function updateProgress(current, total, stage) {
@@ -1526,211 +1170,40 @@ ipcMain.handle('get-desktop-path', () => {
 // タスク管理システム関連のハンドラー登録
 // タスク一覧取得
 ipcMain.handle('get-task-list', async () => {
-  return taskManager.getTasksSummary();
-});
-
-// タスクキャンセル
-ipcMain.handle('cancel-task', async (event, taskId) => {
-  return taskManager.cancelTask(taskId);
-});
-
-// タスク更新イベントをレンダラープロセスに送信
-taskManager.on('tasks-updated', (taskSummary) => {
-  // 全ウィンドウにイベントを送信
-  BrowserWindow.getAllWindows().forEach(window => {
-    if (!window.isDestroyed()) {
-      window.webContents.send('tasks-updated', taskSummary);
-    }
-  });
+  return globalTaskManager.getTasksSummary();
 });
 
 // FFmpegサービスからのタスクイベントをタスク管理システムに統合
 const ffmpegTaskMap = new Map();
-ffmpegServiceManager.on('task-created', (taskId, options) => {
-  // ファイル名の取得を改善
-  let fileName = null;
-  
-  // 1. 直接指定されたファイル名があればそれを使用
-  if (options.fileName) {
-    fileName = options.fileName;
-  } 
-  // 2. 入力ファイルパスがあれば、そのファイル名を抽出
-  else if (options.input) {
-    fileName = path.basename(options.input);
-  } 
-  // 3. commandから入力ファイルを推測（-i オプションの後の引数）
-  else if (options.command) {
-    const inputMatch = options.command.match(/-i\s+["']?([^"'\s]+)["']?/);
-    if (inputMatch && inputMatch[1]) {
-      fileName = path.basename(inputMatch[1]);
-    }
-  }
 
-  // FFmpegタスクをタスク管理システムに登録
-  const globalTaskId = taskManager.createTask({
-    type: options.type || 'encode',
-    fileId: options.fileId,
-    fileName: fileName || null, // デフォルト値を削除し、nullを使用
-    cancellable: true,
-    details: options.details || `FFmpeg処理: ${options.command || ''}`
-  });
-  
-  // FFmpegタスクIDとグローバルタスクIDのマッピングを保存
-  ffmpegTaskMap.set(taskId, globalTaskId);
-});
-
-// FFmpegタスクの進捗更新イベント
-ffmpegServiceManager.on('task-progress', (taskId, progress) => {
-  const globalTaskId = ffmpegTaskMap.get(taskId);
-  if (globalTaskId) {
-    taskManager.updateTask(globalTaskId, {
-      status: 'processing',
-      progress: progress.percent || 0
+// 進捗更新関数
+function updateProgress(current, total, stage) {
+  const percentage = Math.round((current / total) * 100);
+  if (mainWindow) {
+    mainWindow.webContents.send('export-progress', {
+      current,
+      total,
+      percentage,
+      stage
     });
   }
-});
-
-// FFmpegタスクの完了イベント
-ffmpegServiceManager.on('task-completed', (taskId, result) => {
-  const globalTaskId = ffmpegTaskMap.get(taskId);
-  if (globalTaskId) {
-    taskManager.updateTask(globalTaskId, {
-      status: 'completed',
-      progress: 100,
-      details: result ? `完了: ${JSON.stringify(result)}` : '処理完了'
-    });
-    ffmpegTaskMap.delete(taskId);
-  }
-});
-
-// FFmpegタスクのエラーイベント
-ffmpegServiceManager.on('task-error', (taskId, error) => {
-  const globalTaskId = ffmpegTaskMap.get(taskId);
-  if (globalTaskId) {
-    taskManager.updateTask(globalTaskId, {
-      status: 'error',
-      error: error.message || 'FFmpeg処理中にエラーが発生しました',
-      details: error.details || null
-    });
-    ffmpegTaskMap.delete(taskId);
-  }
-});
-
-// FFmpegタスクのキャンセルイベント
-ffmpegServiceManager.on('task-cancelled', (taskId, result) => {
-  const globalTaskId = ffmpegTaskMap.get(taskId);
-  if (globalTaskId) {
-    taskManager.updateTask(globalTaskId, {
-      status: 'cancelled',
-      progress: 0,
-      details: 'タスクはキャンセルされました'
-    });
-    ffmpegTaskMap.delete(taskId);
-  }
-});
-
-// タスクキャンセルリクエストの処理
-taskManager.on('task-cancel-requested', async (taskId, taskType) => {
-  // FFmpegタスクのキャンセル処理
-  for (const [ffmpegTaskId, globalTaskId] of ffmpegTaskMap.entries()) {
-    if (globalTaskId === taskId) {
-      try {
-        const result = await ffmpegServiceManager.cancelTask(ffmpegTaskId);
-        console.log(`タスク ${taskId} のキャンセル結果:`, result);
-        
-        // タスクをキャンセル状態に更新（成功した場合のみ）
-        if (result && result.success) {
-          taskManager.updateTask(taskId, {
-            status: 'cancelled',
-            progress: 0,
-            details: 'キャンセル処理が完了しました'
-          });
-        }
-      } catch (error) {
-        console.error(`FFmpegタスク ${ffmpegTaskId} のキャンセルに失敗:`, error);
-        // キャンセル処理に失敗した場合も通知
-        taskManager.updateTask(taskId, {
-          error: `キャンセル処理中にエラーが発生しました: ${error.message || '不明なエラー'}`
-        });
-      }
-      break;
-    }
-  }
-});
-
-// タスク進捗状況をポーリングするバックグラウンド処理
-const activeTasks = new Map();
-
-// タスク進捗状況の監視を開始
-function startTaskProgress(taskId, options = {}) {
-  if (activeTasks.has(taskId)) {
-    // 既に監視中の場合は何もしない
-    return;
-  }
-  
-  console.log(`タスク ${taskId} の進捗監視を開始`);
-  
-  const intervalId = setInterval(async () => {
-    try {
-      const status = await ffmpegServiceManager.getTaskStatus(taskId);
-      
-      // タスクが完了または失敗した場合は監視を停止
-      if (status.status === 'completed' || status.status === 'failed' || status.status === 'error' || status.status === 'cancelled') {
-        stopTaskProgress(taskId);
-      }
-      
-      // 進捗情報をレンダラープロセスに送信
-      if (mainWindow && !mainWindow.isDestroyed()) {
-        mainWindow.webContents.send('ffmpeg-task-progress', {
-          taskId,
-          status: status.status,
-          progress: status.progress || 0,
-          ...status
-        });
-        
-        // 特定のタスク種別の場合、専用のイベントも発行
-        if (options.type === 'export') {
-          mainWindow.webContents.send('export-progress', {
-            progress: status.progress || 0,
-            status: status.status,
-            ...options.data
-          });
-        } else if (options.type === 'loudness') {
-          // 完了時のみ通知
-          if (status.status === 'completed') {
-            mainWindow.webContents.send('loudness-measured', {
-              ...options.data,
-              result: status.result
-            });
-          } else if (status.status === 'failed' || status.status === 'error') {
-            mainWindow.webContents.send('loudness-error', {
-              error: status.stderr || 'Unknown error'
-            });
-          }
-        }
-      }
-    } catch (error) {
-      console.error(`タスク ${taskId} の進捗取得エラー:`, error);
-      
-      // エラー発生時も監視を停止
-      stopTaskProgress(taskId);
-    }
-  }, 500); // 500ミリ秒ごとに更新
-  
-  // タスク情報を保存
-  activeTasks.set(taskId, {
-    intervalId,
-    options,
-    startTime: Date.now()
-  });
 }
 
-// タスク進捗状況の監視を停止
-function stopTaskProgress(taskId) {
-  const task = activeTasks.get(taskId);
-  if (task) {
-    clearInterval(task.intervalId);
-    activeTasks.delete(taskId);
-    console.log(`タスク ${taskId} の進捗監視を停止 (所要時間: ${(Date.now() - task.startTime) / 1000}秒)`);
+// タスク管理システムのイベントリスナーを設定
+function setupTaskEventListeners() {
+  // eventEmitterプロパティが存在するか確認
+  if (!globalTaskManager || !globalTaskManager.eventEmitter) {
+    console.error('タスクマネージャーが正しく初期化されていないか、eventEmitterプロパティが見つかりません');
+    return;
   }
+
+  // タスク更新イベントをレンダラープロセスに送信
+  globalTaskManager.eventEmitter.on('tasks-updated', (taskSummary) => {
+    // 全ウィンドウにイベントを送信
+    BrowserWindow.getAllWindows().forEach(window => {
+      if (!window.isDestroyed()) {
+        window.webContents.send('tasks-updated', taskSummary);
+      }
+    });
+  });
 }

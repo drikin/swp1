@@ -28,7 +28,17 @@ try {
     'ffmpeg-task-status',  // 新しいFFmpegタスクステータス確認用チャンネル
     'ffmpeg-task-cancel',  // 新しいFFmpegタスクキャンセル用チャンネル
     'get-task-list',       // タスクリスト取得用チャンネル
-    'cancel-task'          // タスクキャンセル用チャンネル
+    'cancel-task',         // タスクキャンセル用チャンネル
+    'get-task-status',     // タスク状態取得用チャンネル
+    'get-task-id-by-media-path', // メディアパスからタスクID取得用チャンネル
+    'get-waveform-data',   // 波形データ取得用チャンネル
+    
+    // 新しいタスク管理システムのAPI（追加）
+    'create-task',         // 新規タスク作成
+    'get-task-result',     // タスク結果取得
+    'find-tasks-by-media', // メディアパスからタスク検索
+    'get-task-types',      // タスク種類一覧取得
+    'clean-tasks-history'  // 古いタスク履歴をクリア
   ];
   
   const validEventChannels = [
@@ -39,7 +49,13 @@ try {
     'loudness-measured',
     'loudness-error',
     'ffmpeg-task-progress', // 新しいFFmpegタスク進捗通知用チャンネル
-    'tasks-updated'         // タスク一覧更新通知用チャンネル
+    'tasks-updated',        // タスク一覧更新通知用チャンネル
+    
+    // 新しいタスク管理システムのイベント（追加）
+    'task-progress',        // 個別タスクの進捗通知
+    'task-completed',       // タスク完了通知
+    'task-failed',          // タスク失敗通知
+    'task-cancelled'        // タスクキャンセル通知
   ];
   
   // 統合されたAPIオブジェクトを作成
@@ -57,6 +73,7 @@ try {
     
     // イベントリスナー登録
     on: (channel, callback) => {
+      console.log(`イベントリスナー登録: ${channel}`);
       // 許可されたチャンネルのみリスナー登録を許可
       if (validEventChannels.includes(channel)) {
         const subscription = (event, ...args) => callback(...args);
@@ -64,6 +81,7 @@ try {
         
         // 登録解除用の関数を返す
         return () => {
+          console.log(`イベントリスナー解除: ${channel}`);
           ipcRenderer.removeListener(channel, subscription);
         };
       }
@@ -74,6 +92,7 @@ try {
     
     // イベントリスナー削除
     off: (channel, callback) => {
+      console.log(`イベントリスナー削除: ${channel}`);
       // 許可されたチャンネルのみリスナー削除を許可
       if (validEventChannels.includes(channel)) {
         ipcRenderer.removeListener(channel, callback);
@@ -102,7 +121,10 @@ try {
       }
     },
     exportCombinedVideo: (options) => ipcRenderer.invoke('export-combined-video', options),
-    measureLoudness: (filePath) => ipcRenderer.invoke('measure-loudness', filePath),
+    measureLoudness: (filePath) => {
+      console.log(`ラウドネス測定リクエスト: ${filePath}`);
+      return ipcRenderer.invoke('measure-loudness', filePath);
+    },
     
     // 新しいFFmpegタスク管理関数
     getFFmpegTaskStatus: (taskId) => ipcRenderer.invoke('ffmpeg-task-status', taskId),
@@ -112,6 +134,29 @@ try {
     openFileDialog: (paths) => ipcRenderer.invoke('open-file-dialog', paths),
     openDirectoryDialog: () => ipcRenderer.invoke('open-directory-dialog'),
     getDesktopPath: () => ipcRenderer.invoke('get-desktop-path'),
+    
+    // タスク関連メソッド
+    getTaskStatus: (taskId) => {
+      console.log(`タスク状態の取得: ${taskId}`);
+      return ipcRenderer.invoke('get-task-status', taskId);
+    },
+    getTaskIdByMediaPath: (mediaPath, taskType) => {
+      console.log(`メディアパスからタスクID取得: ${mediaPath}, タイプ: ${taskType}`);
+      return ipcRenderer.invoke('get-task-id-by-media-path', mediaPath, taskType);
+    },
+    
+    // 波形データ関連メソッド
+    getWaveformData: (taskId) => {
+      console.log(`波形データ取得リクエスト: ${taskId}`);
+      return ipcRenderer.invoke('get-waveform-data', taskId);
+    },
+    
+    // 新しいタスク管理システムのAPI（追加）
+    createTask: (taskType, options) => ipcRenderer.invoke('create-task', taskType, options),
+    getTaskResult: (taskId) => ipcRenderer.invoke('get-task-result', taskId),
+    findTasksByMedia: (mediaPath) => ipcRenderer.invoke('find-tasks-by-media', mediaPath),
+    getTaskTypes: () => ipcRenderer.invoke('get-task-types'),
+    cleanTasksHistory: () => ipcRenderer.invoke('clean-tasks-history')
   });
   
   console.log('API successfully exposed to renderer via contextBridge');
@@ -133,6 +178,21 @@ contextBridge.exposeInMainWorld('taskManager', {
   
   // タスクをキャンセル
   cancelTask: (taskId) => ipcRenderer.invoke('cancel-task', taskId),
+  
+  // タスクの詳細情報を取得
+  getTaskById: (taskId) => ipcRenderer.invoke('get-task-status', taskId),
+  
+  // 新しいタスクを作成（新システムAPI）
+  createTask: (type, options) => ipcRenderer.invoke('create-task', type, options),
+  
+  // タスク結果を取得（新システムAPI）
+  getTaskResult: (taskId) => ipcRenderer.invoke('get-task-result', taskId),
+  
+  // メディアパスに関連するタスクを検索（新システムAPI）
+  findTasksByMedia: (mediaPath, type) => ipcRenderer.invoke('find-tasks-by-media', mediaPath, type),
+  
+  // タスク履歴をクリア（新システムAPI）
+  cleanTasksHistory: () => ipcRenderer.invoke('clean-tasks-history'),
   
   // タスク更新の購読
   onTasksUpdated: (callback) => {

@@ -2,7 +2,7 @@
  * ffmpeg-service-manager.js
  * FFmpegサービスプロセスを管理するためのクラス
  */
-const { spawn } = require('child_process');
+const { spawn, exec } = require('child_process');
 const axios = require('axios');
 const path = require('path');
 const { app } = require('electron');
@@ -27,6 +27,7 @@ class FFmpegServiceManager extends EventEmitter {
     this.onReadyCallbacks = [];
     this.pendingRequests = [];
     this.startPromise = null;
+    this.activeTaskIds = new Set(); // アクティブなタスクIDを追跡
     
     // サービス起動コマンドのパス
     this.servicePath = path.join(__dirname, 'ffmpeg-service.js');
@@ -49,24 +50,22 @@ class FFmpegServiceManager extends EventEmitter {
     
     this.startPromise = new Promise(async (resolve, reject) => {
       try {
-        // サービスが既に実行中かチェック
-        if (this.isRunning) {
-          console.log('FFmpegサービスは既に実行中です');
-          resolve(true);
-          return;
+        // 既存のプロセスを強制終了（常に実行して確実にサービスを再起動）
+        try {
+          console.log('既存のプロセスを確実に終了してからサービスを起動します');
+          await this.killAllFFmpegProcesses().catch(err => {
+            console.warn('既存のFFmpegプロセス終了中にエラー:', err);
+          });
+        } catch (err) {
+          console.warn('既存のFFmpegプロセス終了中にエラー:', err);
         }
         
-        // サービスのヘルスチェックを試行
-        try {
-          await this._healthCheck();
-          console.log('既存のFFmpegサービスが見つかりました、新しいプロセスは起動しません');
-          this.isRunning = true;
-          this._startHealthCheck();
-          resolve(true);
-          return;
-        } catch (err) {
-          // ヘルスチェックが失敗した場合は新しいプロセスを起動
-          console.log('既存のFFmpegサービスが見つかりません、新しいプロセスを起動します');
+        // サービスが既に実行中かチェック
+        if (this.isRunning) {
+          console.log('FFmpegサービスは既に実行中と判断されていましたが、確実に再起動します');
+          this.isRunning = false;
+          this._stopHealthCheck();
+          this.serviceProcess = null;
         }
         
         // 環境変数の設定
@@ -108,11 +107,13 @@ class FFmpegServiceManager extends EventEmitter {
         let startTime = Date.now();
         let isReady = false;
         
+        console.log('FFmpegサービスの準備ができるまで待機中...');
         while (!isReady && (Date.now() - startTime) < SERVICE_START_TIMEOUT) {
           try {
             await new Promise(r => setTimeout(r, 500)); // 500ms待機
             await this._healthCheck();
             isReady = true;
+            console.log('FFmpegサービスが応答可能になりました');
           } catch (err) {
             // まだ準備ができていない、待機継続
           }
@@ -149,97 +150,191 @@ class FFmpegServiceManager extends EventEmitter {
    * サービスを停止
    */
   stop() {
-    return new Promise((resolve) => {
-      if (!this.isRunning || !this.serviceProcess) {
-        console.log('FFmpegサービスは実行されていません');
+    return new Promise(async (resolve, reject) => {
+      try {
+        console.log('FFmpegサービスを停止します...');
+        
+        // 実行中のすべてのタスクをキャンセル
+        if (this.activeTaskIds.size > 0) {
+          console.log(`実行中の${this.activeTaskIds.size}個のタスクをキャンセルします...`);
+          
+          const cancelPromises = Array.from(this.activeTaskIds).map(taskId => {
+            return this.cancelTask(taskId).catch(err => {
+              console.warn(`タスク[${taskId}]のキャンセルに失敗しました:`, err);
+              return null;
+            });
+          });
+          
+          await Promise.allSettled(cancelPromises);
+          console.log('すべてのタスクのキャンセル処理が完了しました');
+        }
+        
+        // APIを使用してサービスを正常に停止
+        if (this.isRunning) {
+          try {
+            await axios.post(`${this.baseUrl}/shutdown`);
+            console.log('サービスへの停止リクエストを送信しました');
+          } catch (err) {
+            console.warn('サービスへの停止リクエスト送信に失敗しました:', err.message);
+          }
+        }
+        
+        // サービスプロセスが存在する場合は強制終了
+        if (this.serviceProcess) {
+          console.log('FFmpegサービスプロセスを強制終了します');
+          
+          try {
+            // プロセスグループ全体を終了（子プロセスも含む）
+            if (process.platform === 'win32') {
+              // Windowsの場合
+              exec(`taskkill /F /T /PID ${this.serviceProcess.pid}`);
+            } else {
+              // macOS/Linuxの場合
+              process.kill(-this.serviceProcess.pid, 'SIGKILL');
+            }
+          } catch (err) {
+            console.warn('プロセスの強制終了に失敗:', err);
+          }
+          
+          this.serviceProcess = null;
+        }
+        
+        // 残存するFFmpegプロセスをすべて強制終了
+        await this.killAllFFmpegProcesses();
+        
+        // ヘルスチェックを停止
+        this._stopHealthCheck();
+        
         this.isRunning = false;
-        resolve(true);
-        return;
+        this.startPromise = null;
+        this.activeTaskIds.clear();
+        
+        console.log('FFmpegサービスの停止処理が完了しました');
+        resolve();
+      } catch (error) {
+        console.error('FFmpegサービス停止エラー:', error);
+        this.isRunning = false;
+        this.startPromise = null;
+        reject(error);
       }
-      
-      console.log('FFmpegサービスを停止しています...');
-      this._stopHealthCheck();
-      
-      // Windowsでは異なる終了方法が必要
-      if (process.platform === 'win32') {
-        try {
-          process.kill(this.serviceProcess.pid);
-        } catch (err) {
-          console.error('FFmpegサービス終了エラー:', err);
-        }
-      } else {
-        // SIGTERMシグナルを送信
-        try {
-          process.kill(-this.serviceProcess.pid, 'SIGTERM');
-        } catch (err) {
-          console.error('FFmpegサービス終了エラー:', err);
-        }
-      }
-      
-      // プロセスの終了を待機
-      let waitTimeout = setTimeout(() => {
-        console.log('FFmpegサービス終了待機タイムアウト、強制終了します');
-        try {
-          process.kill(-this.serviceProcess.pid, 'SIGKILL');
-        } catch (err) {
-          console.error('FFmpegサービス強制終了エラー:', err);
-        }
-        this.isRunning = false;
-        this.serviceProcess = null;
-        resolve(true);
-      }, 5000); // 5秒待機
-      
-      this.serviceProcess.on('close', () => {
-        clearTimeout(waitTimeout);
-        console.log('FFmpegサービスは正常に終了しました');
-        this.isRunning = false;
-        this.serviceProcess = null;
-        resolve(true);
-      });
     });
   }
   
   /**
+   * システム上のすべてのFFmpegプロセスを強制終了
+   */
+  killAllFFmpegProcesses() {
+    return new Promise((resolve) => {
+      console.log('システム上のすべてのFFmpegプロセスを検索して強制終了します...');
+      
+      // OSに応じたコマンドを選択
+      let command;
+      if (process.platform === 'win32') {
+        // Windowsの場合
+        command = 'tasklist /FI "IMAGENAME eq ffmpeg.exe" /FO CSV | findstr /r "^\"ffmpeg.exe"';
+      } else {
+        // macOS/Linuxの場合
+        command = 'ps aux | grep "[f]fmpeg" | awk \'{print $2}\'';
+      }
+      
+      // プロセスを検索
+      exec(command, (error, stdout) => {
+        if (error) {
+          console.warn('FFmpegプロセスの検索に失敗:', error);
+          resolve();
+          return;
+        }
+        
+        const pidList = stdout.trim().split('\n').filter(line => line.length > 0);
+        
+        if (pidList.length === 0) {
+          console.log('実行中のFFmpegプロセスは見つかりませんでした');
+          resolve();
+          return;
+        }
+        
+        console.log(`${pidList.length}個のFFmpegプロセスを強制終了します:`, pidList);
+        
+        // 各プロセスを強制終了
+        const killPromises = pidList.map(pid => {
+          return new Promise((killResolve) => {
+            // PIDの前処理（Windowsの場合CSVフォーマットから抽出）
+            let processId = pid;
+            if (process.platform === 'win32' && pid.includes(',')) {
+              processId = pid.split(',')[1].replace(/"/g, '').trim();
+            }
+            
+            const killCmd = process.platform === 'win32' 
+              ? `taskkill /F /T /PID ${processId}` 
+              : `kill -9 ${processId}`;
+            
+            exec(killCmd, (err) => {
+              if (err) {
+                console.warn(`PID ${processId} の終了に失敗:`, err);
+              } else {
+                console.log(`PID ${processId} のFFmpegプロセスを終了しました`);
+              }
+              killResolve();
+            });
+          });
+        });
+        
+        // すべてのkill処理が完了するのを待つ
+        Promise.all(killPromises).then(() => {
+          console.log('すべてのFFmpegプロセスの強制終了処理が完了しました');
+          resolve();
+        });
+      });
+    });
+  }
+
+  /**
    * FFmpegタスクを実行
    */
-  async processFFmpeg(args, options = {}) {
-    // サービス準備確認
-    if (!this.isRunning) {
+  processFFmpeg(args, options = {}) {
+    const executeRequest = async () => {
       try {
-        await this.start();
+        // リクエストボディの作成
+        const requestBody = {
+          taskId: `task_${Date.now()}_${Math.floor(Math.random() * 10000)}`, // タスクIDを生成
+          args: args
+        };
+        
+        if (options.outputFormat) {
+          requestBody.outputFormat = options.outputFormat;
+        }
+        
+        if (options.timeout) {
+          requestBody.timeout = options.timeout;
+        }
+        
+        // タスク実行リクエストを送信
+        const response = await axios.post(`${this.baseUrl}/process`, requestBody);
+        const taskId = response.data.taskId;
+        
+        // アクティブなタスクリストに追加
+        if (taskId) {
+          this.activeTaskIds.add(taskId);
+        }
+        
+        // タスク進捗のポーリングを開始
+        this._startTaskPolling(taskId);
+        
+        return response.data;
       } catch (error) {
-        return { error: 'FFmpegサービスの起動に失敗しました: ' + error.message };
+        console.error('FFmpegタスク実行エラー:', error);
+        throw error;
       }
+    };
+    
+    // サービスが起動していない場合は起動
+    if (!this.isRunning) {
+      return this.start().then(() => executeRequest());
     }
     
-    try {
-      // タスクIDの生成
-      const taskId = `task-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-      
-      // タスク作成イベントを発行
-      this.emit('task-created', taskId, {
-        ...options,
-        command: args.join(' '),
-        type: options.type || 'encode'
-      });
-      
-      // FFmpegタスクリクエスト
-      const response = await axios.post(`${this.baseUrl}/process`, {
-        taskId,
-        args,
-        options
-      });
-      
-      // タスク進捗を監視するためのポーリング
-      this._startTaskPolling(taskId);
-      
-      return { taskId, ...response.data };
-    } catch (error) {
-      console.error('FFmpeg処理リクエストエラー:', error);
-      return { error: error.message };
-    }
+    return executeRequest();
   }
-  
+
   /**
    * タスク状態の取得
    */
@@ -252,13 +347,13 @@ class FFmpegServiceManager extends EventEmitter {
       return { error: error.message };
     }
   }
-  
+
   /**
    * サービス準備完了時のコールバック登録
    */
   onReady(callback) {
     if (this.isRunning) {
-      // 既に準備完了している場合は即時実行
+      // 既に準備完了してている場合は即時実行
       callback();
     } else {
       // 準備中の場合はコールバックリストに追加
@@ -272,14 +367,14 @@ class FFmpegServiceManager extends EventEmitter {
       }
     }
   }
-  
+
   /**
    * リクエストを一時保留 (サービス起動前)
    */
   addPendingRequest(requestFunc) {
     this.pendingRequests.push(requestFunc);
   }
-  
+
   /**
    * 保留中のリクエストを処理
    */
@@ -295,7 +390,7 @@ class FFmpegServiceManager extends EventEmitter {
       }
     }
   }
-  
+
   /**
    * 準備完了通知
    */
@@ -311,7 +406,7 @@ class FFmpegServiceManager extends EventEmitter {
       }
     }
   }
-  
+
   /**
    * サービスのヘルスチェック
    */
@@ -323,7 +418,7 @@ class FFmpegServiceManager extends EventEmitter {
       throw new Error('FFmpegサービスが応答していません');
     }
   }
-  
+
   /**
    * 定期的なヘルスチェックを開始
    */
@@ -347,7 +442,7 @@ class FFmpegServiceManager extends EventEmitter {
       }
     }, HEALTH_CHECK_INTERVAL);
   }
-  
+
   /**
    * ヘルスチェックを停止
    */
@@ -357,33 +452,75 @@ class FFmpegServiceManager extends EventEmitter {
       this.healthCheckInterval = null;
     }
   }
-  
+
   /**
    * タスクをキャンセル
    */
-  async cancelTask(taskId) {
-    try {
-      const response = await axios.post(`${this.baseUrl}/cancel/${taskId}`);
-      
-      // キャンセル成功時にイベントを発行
-      if (response.data && response.data.success) {
-        this.emit('task-cancelled', taskId, response.data);
-      }
-      
-      return response.data;
-    } catch (error) {
-      console.error('FFmpegタスクキャンセルエラー:', error);
-      return { success: false, error: error.message };
+  cancelTask(taskId) {
+    // アクティブタスクリストから削除
+    if (this.activeTaskIds.has(taskId)) {
+      this.activeTaskIds.delete(taskId);
     }
+
+    return new Promise(async (resolve, reject) => {
+      try {
+        // サービスが起動していない場合はエラー
+        if (!this.isRunning) {
+          throw new Error('FFmpegサービスが実行されていません');
+        }
+        
+        const response = await axios.post(`${this.baseUrl}/cancel/${taskId}`);
+        
+        // キャンセル成功時にイベントを発行
+        if (response.data && response.data.success) {
+          this.emit('task-cancelled', taskId, response.data);
+        }
+        
+        resolve(response.data);
+      } catch (error) {
+        console.error('FFmpegタスクキャンセルエラー:', error);
+        reject(error);
+      }
+    });
   }
-  
+
   /**
    * タスク進捗のポーリングを開始
    */
   _startTaskPolling(taskId) {
     const pollInterval = 1000; // 1秒ごとにポーリング
-    let interval = setInterval(async () => {
+    let interval = null;
+    let pollingCount = 0;
+    const maxPollingCount = 120; // 2分で最大120回のポーリング（1秒ごと）
+    
+    console.log(`タスク[${taskId}]のポーリングを開始します`);
+    
+    interval = setInterval(async () => {
       try {
+        pollingCount++;
+        
+        // ポーリング回数の上限チェック
+        if (pollingCount >= maxPollingCount) {
+          console.warn(`タスク[${taskId}]のポーリングが${maxPollingCount}回を超えました。強制終了します`);
+          if (interval) {
+            clearInterval(interval);
+            interval = null;
+          }
+          
+          // タスクを強制的にエラー状態に更新
+          this.emit('task-error', taskId, {
+            message: 'タスクがタイムアウトしました',
+            details: 'ポーリング回数上限を超過したため強制終了'
+          });
+          
+          // アクティブタスクリストから削除
+          if (this.activeTaskIds.has(taskId)) {
+            this.activeTaskIds.delete(taskId);
+          }
+          
+          return;
+        }
+        
         const status = await this.getTaskStatus(taskId);
         
         // 進捗イベントを発行
@@ -396,35 +533,68 @@ class FFmpegServiceManager extends EventEmitter {
         
         // タスク完了の場合
         if (status.status === 'completed') {
+          console.log(`タスク[${taskId}]が完了しました。ポーリングを停止します。`);
           this.emit('task-completed', taskId, status.result || null);
           clearInterval(interval);
+          interval = null;
+          
+          // アクティブタスクリストから削除
+          if (this.activeTaskIds.has(taskId)) {
+            this.activeTaskIds.delete(taskId);
+          }
         }
         
         // エラーの場合
-        else if (status.status === 'error') {
+        else if (status.status === 'error' || status.status === 'failed') {
+          console.log(`タスク[${taskId}]でエラーが発生しました。ポーリングを停止します。`);
           this.emit('task-error', taskId, {
             message: status.error || 'タスクの実行中にエラーが発生しました',
             details: status.details || null
           });
           clearInterval(interval);
+          interval = null;
+          
+          // アクティブタスクリストから削除
+          if (this.activeTaskIds.has(taskId)) {
+            this.activeTaskIds.delete(taskId);
+          }
         }
         
         // キャンセルの場合
         else if (status.status === 'cancelled') {
+          console.log(`タスク[${taskId}]がキャンセルされました。ポーリングを停止します。`);
           this.emit('task-cancelled', taskId);
           clearInterval(interval);
+          interval = null;
+          
+          // アクティブタスクリストから削除
+          if (this.activeTaskIds.has(taskId)) {
+            this.activeTaskIds.delete(taskId);
+          }
         }
       } catch (error) {
         console.error(`タスク[${taskId}]のポーリングエラー:`, error);
-        // エラーが続くようならポーリング停止を検討
+        // エラーが続く場合はポーリングを早めに停止
+        pollingCount += 10; // エラーが起きた場合はカウントを増やして早くタイムアウトさせる
       }
     }, pollInterval);
     
-    // 5分後に強制停止（無限ポーリングを避ける）
+    // 強制終了用のタイムアウト (5分)
     setTimeout(() => {
       if (interval) {
+        console.warn(`タスク[${taskId}]のポーリングが5分の最大時間を超えました。強制終了します。`);
         clearInterval(interval);
-        console.log(`タスク[${taskId}]のポーリングがタイムアウトで停止されました`);
+        
+        // タスクを強制的にエラー状態に更新
+        this.emit('task-error', taskId, {
+          message: 'タスクの監視がタイムアウトしました',
+          details: '5分間の最大監視時間を超過したため強制終了しました'
+        });
+        
+        // アクティブタスクリストから削除
+        if (this.activeTaskIds.has(taskId)) {
+          this.activeTaskIds.delete(taskId);
+        }
       }
     }, 5 * 60 * 1000);
   }
