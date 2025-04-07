@@ -346,9 +346,81 @@ const App: React.FC = () => {
     }
   }, []);
 
+  // ラウドネス測定イベントリスナー
+  useEffect(() => {
+    if (window.api) {
+      // ラウドネス測定完了イベント
+      const removeMeasuredListener = window.api.on('loudness-measured', (data: { id: string, loudnessInfo: any }) => {
+        const { id, loudnessInfo } = data;
+        console.log('ラウドネス測定完了イベント受信:', id, loudnessInfo);
+        
+        setMediaFiles(prev => {
+          // 対象メディアを見つける
+          const targetMedia = prev.find(m => m.id === id);
+          const mediaName = targetMedia?.name || 'メディア';
+          
+          // 状態更新後に完了メッセージを表示
+          setTimeout(() => {
+            setStatus(`${mediaName}のラウドネス測定が完了しました`);
+          }, 0);
+          
+          // メディア状態を更新して返す
+          return prev.map(m => 
+            m.id === id ? { 
+              ...m, 
+              loudnessInfo, 
+              loudnessNormalization: true, 
+              isMeasuringLoudness: false 
+            } : m
+          );
+        });
+      });
+      
+      // ラウドネス測定エラーイベント
+      const removeErrorListener = window.api.on('loudness-error', (data: { id: string, error?: string }) => {
+        const { id, error } = data;
+        console.log('ラウドネス測定エラーイベント受信:', id, error || 'エラー詳細なし');
+        
+        setMediaFiles(prev => {
+          // 対象メディアを見つける
+          const targetMedia = prev.find(m => m.id === id);
+          const mediaName = targetMedia?.name || 'メディア';
+          
+          // 状態更新後にエラーメッセージを表示
+          setTimeout(() => {
+            const errorMessage = error === 'タイムアウト' 
+              ? `${mediaName}のラウドネス測定がタイムアウトしました` 
+              : `${mediaName}のラウドネス測定に失敗しました`;
+            setStatus(errorMessage);
+          }, 0);
+          
+          // メディア状態を更新して返す
+          return prev.map(m => 
+            m.id === id ? { 
+              ...m, 
+              isMeasuringLoudness: false, 
+              loudnessError: true 
+            } : m
+          );
+        });
+      });
+      
+      return () => {
+        removeMeasuredListener();
+        removeErrorListener();
+      };
+    }
+  }, []);
+
   // サムネイル生成用のヘルパー関数
   const generateThumbnailForMedia = (media: any) => {
     if (!window.api || !media || !media.id || !media.path) {
+      return;
+    }
+    
+    // すでにサムネイル生成中または完了していたら処理しない
+    if (media.thumbnailGenerating || media.thumbnail) {
+      console.log('このメディアはすでにサムネイル生成中または完了しています:', media.id);
       return;
     }
     
@@ -360,19 +432,32 @@ const App: React.FC = () => {
     
     console.log('サムネイル生成要求:', media.id, media.path);
     
+    // サムネイル生成中フラグを設定（メディア情報を更新）
+    handleUpdateMedia(media.id, { thumbnailGenerating: true });
+    
     // メディアパスとIDを個別に渡す
     try {
       window.api.generateThumbnail(media.path, media.id)
         .then((result: any) => {
           if (result) {
             console.log('サムネイル生成成功:', media.id);
+            // サムネイル生成完了フラグを設定
+            handleUpdateMedia(media.id, { 
+              thumbnail: result,
+              thumbnailGenerating: false 
+            });
+          } else {
+            console.warn('サムネイル生成結果がnullです:', media.id);
+            handleUpdateMedia(media.id, { thumbnailGenerating: false });
           }
         })
         .catch((error: Error) => {
           console.error('サムネイル生成エラー:', media.id, error);
+          handleUpdateMedia(media.id, { thumbnailGenerating: false });
         });
     } catch (error) {
       console.error('サムネイル生成の呼び出しエラー:', error);
+      handleUpdateMedia(media.id, { thumbnailGenerating: false });
     }
   };
   

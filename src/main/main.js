@@ -811,14 +811,20 @@ async function measureLoudnessInternal(filePath) {
     const mediaInfo = await getMediaInfo(filePath);
     const duration = mediaInfo.duration || 0;
     
+    if (!duration || duration <= 0) {
+      console.error('動画の長さが取得できないか無効です:', duration);
+      throw new Error('Invalid media duration for loudness measurement');
+    }
+    
     // 短い動画（10秒未満）の場合は全体を測定、それ以外は部分測定
     const isBriefClip = duration < 10;
     
     // サンプリング時間の設定（最大30秒、または動画の長さの15%のいずれか短い方）
     const sampleDuration = isBriefClip ? duration : Math.min(30, duration * 0.15);
     
-    // 動画の中央部分から測定するためのオフセット計算（中央の少し手前から）
-    const startOffset = isBriefClip ? 0 : Math.max(0, (duration / 2) - (sampleDuration / 2));
+    // 動画の前半部分から測定（前半の方が音声パターンの特徴がよく出ることが多い）
+    // 先頭すぎるとイントロやタイトルの無音部分などがあるので少し先にする
+    const startOffset = isBriefClip ? 0 : Math.min(duration * 0.1, 30);
     
     // 解析コマンドを構築 - ffmpeg 7.1.1に最適化
     const args = [
@@ -840,33 +846,197 @@ async function measureLoudnessInternal(filePath) {
       '-'
     );
     
+    // タスクIDを生成して監視
+    const fileId = path.basename(filePath, path.extname(filePath));
+    const taskId = taskManager.createTask({
+      type: 'loudness',
+      fileId: fileId,
+      fileName: path.basename(filePath)
+    });
+    
     console.log('ラウドネス測定コマンド:', args.join(' '));
-    const { stderr } = await runFFmpegCommand(args);
     
-    // 正規表現でJSON部分を抽出
-    const jsonMatch = stderr.match(/\{.*\}/s);
-    if (!jsonMatch) {
-      console.error('JSONデータが見つかりません。FFmpeg出力:', stderr);
-      throw new Error('ラウドネス解析の出力からJSONデータが取得できませんでした');
+    try {
+      // タスク状態の更新
+      taskManager.updateTask(taskId, { 
+        status: 'processing',
+        progress: 10,
+        details: 'ラウドネス測定の前処理中...'
+      });
+      
+      // FFmpegServiceManagerを使用して処理を実行
+      const ffmpegResponse = await ffmpegServiceManager.processFFmpeg(args, {
+        taskId,
+        type: 'loudness',
+        filePath: filePath
+      });
+      
+      // 返されたタスクIDが異なる場合は更新
+      const actualTaskId = ffmpegResponse.taskId || taskId;
+      
+      // 進捗イベントのリスナーを設定
+      const progressListener = (id, progress) => {
+        if (id === actualTaskId) {
+          taskManager.updateTask(taskId, { 
+            progress: progress.percent || 0,
+            details: progress.details || 'ラウドネス測定処理中...'
+          });
+        }
+      };
+      
+      // 完了イベントのリスナー
+      const completionListener = (id, result) => {
+        if (id === actualTaskId) {
+          taskManager.updateTask(taskId, { 
+            status: 'completed',
+            progress: 100,
+            details: 'ラウドネス測定完了'
+          });
+          ffmpegServiceManager.removeListener('task-progress', progressListener);
+          ffmpegServiceManager.removeListener('task-completed', completionListener);
+          ffmpegServiceManager.removeListener('task-error', errorListener);
+        }
+      };
+      
+      // エラーイベントのリスナー
+      const errorListener = (id, error) => {
+        if (id === actualTaskId) {
+          console.error(`ラウドネス測定エラー[${id}]:`, error);
+          taskManager.updateTask(taskId, { 
+            status: 'error',
+            error: error.message || 'ラウドネス測定中にエラーが発生しました',
+            details: error.details || null
+          });
+          ffmpegServiceManager.removeListener('task-progress', progressListener);
+          ffmpegServiceManager.removeListener('task-completed', completionListener);
+          ffmpegServiceManager.removeListener('task-error', errorListener);
+        }
+      };
+      
+      // イベントリスナーを登録
+      ffmpegServiceManager.on('task-progress', progressListener);
+      ffmpegServiceManager.on('task-completed', completionListener);
+      ffmpegServiceManager.on('task-error', errorListener);
+      
+      // 10秒後にタスク状態をチェック - 処理が止まっているかを確認
+      setTimeout(async () => {
+        try {
+          const status = await ffmpegServiceManager.getTaskStatus(actualTaskId);
+          if (status && (status.status === 'queued' || status.status === 'processing')) {
+            console.log(`ラウドネス測定タスク[${actualTaskId}]は進行中です。状態:`, status.status);
+          }
+        } catch (err) {
+          console.error(`タスク[${actualTaskId}]の状態確認エラー:`, err);
+        }
+      }, 10000);
+      
+      // FFmpegの出力を取得
+      const { stderr } = await new Promise((resolve, reject) => {
+        // 完了を監視するため、タイムアウトを設定 (最大3分)
+        const timeout = setTimeout(() => {
+          console.log(`ラウドネス測定タスク[${actualTaskId}]がタイムアウトしました`);
+          ffmpegServiceManager.removeListener('task-completed', onComplete);
+          ffmpegServiceManager.removeListener('task-error', onError);
+          
+          // タイムアウト時にUIに通知するためのイベントを明示的に発行
+          if (mainWindow && fileId) {
+            mainWindow.webContents.send('loudness-error', { 
+              id: fileId,
+              error: 'タイムアウト'
+            });
+          }
+          
+          reject(new Error('ラウドネス測定がタイムアウトしました'));
+        }, 3 * 60 * 1000);
+        
+        // 完了イベントを監視
+        const onComplete = (id, result) => {
+          if (id === actualTaskId) {
+            clearTimeout(timeout);
+            resolve({ stderr: result && result.stderr ? result.stderr : '' });
+          }
+        };
+        
+        // エラーイベントを監視
+        const onError = (id, error) => {
+          if (id === actualTaskId) {
+            clearTimeout(timeout);
+            reject(new Error(error.message || 'ラウドネス測定中にエラーが発生しました'));
+          }
+        };
+        
+        ffmpegServiceManager.once('task-completed', onComplete);
+        ffmpegServiceManager.once('task-error', onError);
+      });
+      
+      // 正規表現でJSON部分を抽出 - より堅牢な抽出パターン
+      const jsonRegex = /\{[\s\S]*?input_i[\s\S]*?input_tp[\s\S]*?input_lra[\s\S]*?input_thresh[\s\S]*?target_offset[\s\S]*?\}/;
+      const jsonMatch = stderr.match(jsonRegex);
+      
+      if (!jsonMatch) {
+        throw new Error('ラウドネス解析の出力からJSONデータが取得できませんでした');
+      }
+      
+      let loudnessData;
+      try {
+        loudnessData = JSON.parse(jsonMatch[0]);
+      } catch (jsonError) {
+        console.error('JSONの解析に失敗しました:', jsonMatch[0]);
+        throw new Error('ラウドネス解析の結果JSONの解析に失敗しました');
+      }
+      
+      // NaNをチェックして修正する関数
+      const safeParseFloat = (value, defaultValue = 0) => {
+        const parsed = parseFloat(value);
+        return isNaN(parsed) ? defaultValue : parsed;
+      };
+      
+      // 測定完了を通知
+      taskManager.updateTask(taskId, { 
+        status: 'completed',
+        progress: 100,
+        details: 'ラウドネス測定完了'
+      });
+      
+      // 測定結果を作成
+      const loudnessResult = {
+        // 入力時のラウドネス値
+        inputIntegratedLoudness: safeParseFloat(loudnessData.input_i, -24),
+        inputTruePeak: safeParseFloat(loudnessData.input_tp, 0),
+        inputLRA: safeParseFloat(loudnessData.input_lra, 7),
+        inputThreshold: safeParseFloat(loudnessData.input_thresh, -34),
+        
+        // ターゲット値
+        targetIntegratedLoudness: safeParseFloat(loudnessData.target_i, -16),
+        targetTruePeak: safeParseFloat(loudnessData.target_tp, -1.5),
+        targetLRA: safeParseFloat(loudnessData.target_lra, 11),
+        targetThreshold: safeParseFloat(loudnessData.target_thresh, -26),
+        
+        // -14 LUFSにするためのゲイン値（検出できなければデフォルト -6dB）
+        lufsGain: safeParseFloat(-14 - loudnessData.input_i, -6)
+      };
+      
+      // 測定結果をUIに直接通知（イベント送信）
+      console.log(`ラウドネス測定結果を送信 [ID: ${fileId}]:`, loudnessResult);
+      if (mainWindow && fileId) {
+        mainWindow.webContents.send('loudness-measured', {
+          id: fileId,
+          loudnessInfo: loudnessResult
+        });
+      }
+      
+      return loudnessResult;
+    } catch (ffmpegError) {
+      console.error('FFmpeg実行エラー:', ffmpegError);
+      
+      // エラー時にタスク状態を更新
+      taskManager.updateTask(taskId, { 
+        status: 'error',
+        error: ffmpegError.message || 'FFmpeg実行中にエラーが発生しました'
+      });
+      
+      throw ffmpegError;
     }
-    
-    const loudnessData = JSON.parse(jsonMatch[0]);
-    return {
-      // 入力時のラウドネス値
-      inputIntegratedLoudness: parseFloat(loudnessData.input_i),
-      inputTruePeak: parseFloat(loudnessData.input_tp),
-      inputLRA: parseFloat(loudnessData.input_lra),
-      inputThreshold: parseFloat(loudnessData.input_thresh),
-      
-      // ターゲット値
-      targetIntegratedLoudness: parseFloat(loudnessData.target_i),
-      targetTruePeak: parseFloat(loudnessData.target_tp),
-      targetLRA: parseFloat(loudnessData.target_lra),
-      targetThreshold: parseFloat(loudnessData.target_thresh),
-      
-      // -14 LUFSにするためのゲイン値
-      lufsGain: -14 - parseFloat(loudnessData.input_i)
-    };
   } catch (error) {
     console.error('LUFS測定エラー:', error);
     throw error;
@@ -1263,7 +1433,7 @@ ipcMain.handle('export-combined-video', async (event, options) => {
       const timestamp = Date.now();
       const parts = outputFileName.split('.');
       const newName = `${parts[0]}_${timestamp}.${parts[parts.length - 1]}`;
-      console.log(`新しいファイル名に変更して書き出します: ${newName}`);
+      console.log('新しいファイル名に変更して書き出します:', newName);
       outputFilePath = path.join(outputPath, newName);
     }
     
