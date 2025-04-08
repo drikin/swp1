@@ -5,6 +5,7 @@
 const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
+const os = require('os');
 const BaseTask = require('../core/base-task');
 
 class ThumbnailTask extends BaseTask {
@@ -15,7 +16,14 @@ class ThumbnailTask extends BaseTask {
     
     // 追加パラメータ
     this.timePosition = params.timePosition || 0; // 秒単位
-    this.size = params.size || '320x240';
+    
+    // サイズ設定
+    // デフォルトは幅320、高さは動的に計算（縦横比を維持）
+    this.thumbnailWidth = params.width || 320;
+    this.thumbnailHeight = params.height || -1; // -1は縦横比を維持
+    
+    // 後方互換性のために文字列形式のサイズも保持
+    this.size = params.size || `${this.thumbnailWidth}x${this.thumbnailHeight}`;
     
     // FFmpeg処理用の変数
     this.ffmpegProcess = null;
@@ -30,13 +38,32 @@ class ThumbnailTask extends BaseTask {
     }
 
     try {
-      // mediaPathがオブジェクトの場合、pathプロパティを使用
-      const inputPath = typeof this.mediaPath === 'object' && this.mediaPath.path 
-        ? this.mediaPath.path 
-        : this.mediaPath;
+      // mediaPathがオブジェクトの場合の処理を改善
+      let inputPath = this.mediaPath;
+      
+      // オブジェクトかどうかのチェックを強化
+      if (this.mediaPath && typeof this.mediaPath === 'object') {
+        console.log('mediaPathはオブジェクトです:', JSON.stringify(this.mediaPath));
+        
+        // pathプロパティまたはfilePathプロパティを使用
+        if (this.mediaPath.path) {
+          inputPath = this.mediaPath.path;
+          console.log('mediaPath.pathを使用します:', inputPath);
+        } else if (this.mediaPath.filePath) {
+          inputPath = this.mediaPath.filePath;
+          console.log('mediaPath.filePathを使用します:', inputPath);
+        } else {
+          // オブジェクトに必要なプロパティがない場合
+          console.error('mediaPathオブジェクトに有効なパスプロパティがありません:', this.mediaPath);
+          return this.fail(`無効なメディアパス形式です: ${JSON.stringify(this.mediaPath)}`);
+        }
+      } else {
+        console.log('mediaPathは文字列です:', inputPath);
+      }
 
       // 入力ファイルの存在確認
       if (!fs.existsSync(inputPath)) {
+        console.error('入力ファイルが存在しません:', inputPath);
         return this.fail(`入力ファイルが存在しません: ${inputPath}`);
       }
 
@@ -46,13 +73,19 @@ class ThumbnailTask extends BaseTask {
         return this.fail('FFmpegのパスが設定されていません');
       }
 
-      // 出力パスを生成
-      const outputDir = path.join(require('os').tmpdir(), 'swp1-thumbnails');
+      // 新しい作業ディレクトリを使用（ホームディレクトリ直下のSuper Waterec）
+      const homeDir = os.homedir();
+      const baseDir = path.join(homeDir, 'Super Watarec');
+      const outputDir = path.join(baseDir, 'thumbnails');
+      
+      // ディレクトリの存在を確認し、必要なら作成
       if (!fs.existsSync(outputDir)) {
         fs.mkdirSync(outputDir, { recursive: true });
+        console.log('サムネイルディレクトリを作成しました:', outputDir);
       }
       
       const outputPath = path.join(outputDir, `thumbnail_${this.id}.jpg`);
+      console.log('サムネイル出力先:', outputPath);
 
       // 時間をhh:mm:ss形式に変換
       const formattedTime = this._formatTimePosition(this.timePosition);
@@ -62,10 +95,13 @@ class ThumbnailTask extends BaseTask {
         '-ss', formattedTime,
         '-i', inputPath,
         '-vframes', '1',
-        '-s', this.size,
+        // 縦横比を維持するため、-sオプションを削除し、フィルターを使用
+        '-vf', `scale=${this.thumbnailWidth}:-1`,
         '-y', // 既存ファイルを上書き
         outputPath
       ];
+
+      console.log('サムネイル生成コマンド:', `${ffmpegPath} ${args.join(' ')}`);
 
       this.updateProgress(10, { phase: 'starting' });
 
@@ -109,21 +145,18 @@ class ThumbnailTask extends BaseTask {
             return;
           }
           
-          // 画像をBase64エンコード
-          const imageBuffer = fs.readFileSync(outputPath);
-          const base64Image = `data:image/jpeg;base64,${imageBuffer.toString('base64')}`;
-          
-          // 結果オブジェクト
+          // タスク完了時にファイルパスをオブジェクト形式で保存
           const result = {
             filePath: outputPath,
-            timePosition: this.timePosition,
-            size: this.size,
-            base64: base64Image
+            fileSize: fileStats.size,
+            width: this.thumbnailWidth,
+            height: this.thumbnailHeight === -1 ? 'auto' : this.thumbnailHeight,
+            timePosition: this.timePosition
           };
           
-          // タスク完了
+          // 完了状態に設定し、結果データを保存
           this.complete(result);
-          resolve(result);
+          resolve(outputPath);
         });
       });
     } catch (error) {

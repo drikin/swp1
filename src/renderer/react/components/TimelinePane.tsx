@@ -30,7 +30,8 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
 }) => {
   const [isDragging, setIsDragging] = useState(false);
   const [selectedMedias, setSelectedMedias] = useState<string[]>([]);
-  const [thumbnails, setThumbnails] = useState<Record<string, string>>({});
+  // サムネイルの状態を保存する形式を変更（ファイルパス形式で扱う）
+  const [thumbnails, setThumbnails] = useState<Record<string, { path: string, url?: string }>>({}); 
   const [measuringLoudness, setMeasuringLoudness] = useState<Record<string, boolean>>({});
   const [loudnessErrors, setLoudnessErrors] = useState<Record<string, boolean>>({});
   const timelinePaneRef = useRef<HTMLDivElement>(null);
@@ -46,28 +47,38 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
   // サムネイル更新イベントのリスナー設定
   useEffect(() => {
     if (window.api && window.api.on) {
-      const handleThumbnailGenerated = (data: { id: string; thumbnail: string }) => {
-        console.log('サムネイル受信:', data.id, '長さ:', data.thumbnail ? data.thumbnail.length : 0);
-        // サムネイルデータの内容確認（デバッグ用）
-        if (data.thumbnail && data.thumbnail.startsWith('data:image')) {
-          console.log('サムネイル形式OK:', data.id);
-        } else if (data.thumbnail) {
-          console.log('サムネイル形式異常:', data.id, data.thumbnail.substring(0, 30) + '...');
-        } else {
-          console.log('サムネイルデータなし:', data.id);
+      console.log('サムネイルリスナーを設定します...');
+      
+      // サムネイル生成イベントハンドラ
+      const handleThumbnailGenerated = (data: { id: string; filePath?: string }) => {
+        console.log('サムネイル生成イベント受信:', data);
+        
+        if (!data.id) {
+          console.error('サムネイルデータにIDがありません');
+          return;
         }
         
-        setThumbnails(prev => {
-          const newThumbnails = {
-            ...prev,
-            [data.id]: data.thumbnail
-          };
-          // 更新後の状態を表示（デバッグ用）
-          console.log('サムネイル保存完了:', data.id, 'サムネイル数:', Object.keys(newThumbnails).length);
-          return newThumbnails;
-        });
+        // filePathがある場合のみ処理（既にpreload.jsでfile://プロトコルが追加済み）
+        if (data.filePath) {
+          console.log('サムネイルパスを使用:', data.filePath);
+          
+          // サムネイル情報を保存
+          setThumbnails(prev => {
+            const newThumbnails = {
+              ...prev,
+              [data.id]: { 
+                path: data.filePath || '',
+                url: data.filePath  // ファイルパスをそのまま使用（preload.jsで処理済み）
+              }
+            };
+            console.log('サムネイル保存完了:', data.id, 'サムネイル数:', Object.keys(newThumbnails).length);
+            return newThumbnails;
+          });
+        } else {
+          console.log('サムネイルデータがありません:', data.id);
+        }
       };
-
+      
       const removeListener = window.api.on('thumbnail-generated', handleThumbnailGenerated);
       
       // 初期化時にサムネイル状態をログ出力
@@ -80,6 +91,30 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
       };
     }
   }, []);
+
+  // メディアデータが変更されたときのログ出力を追加
+  useEffect(() => {
+    if (mediaFiles && mediaFiles.length > 0) {
+      console.log('メディアファイル一覧:', mediaFiles);
+      console.log('現在のサムネイル状態:', thumbnails);
+      
+      // メディアIDとサムネイルIDの一致を確認
+      const mediaIds = mediaFiles.map(media => media.id);
+      const thumbnailIds = Object.keys(thumbnails);
+      
+      console.log('メディアID一覧:', mediaIds);
+      console.log('サムネイルID一覧:', thumbnailIds);
+      
+      // メディアとサムネイルの対応関係を確認
+      mediaFiles.forEach(media => {
+        if (media.id && thumbnails[media.id]) {
+          console.log(`メディア ${media.id} のサムネイル情報:`, thumbnails[media.id]);
+        } else if (media.id) {
+          console.log(`メディア ${media.id} のサムネイルがありません`);
+        }
+      });
+    }
+  }, [mediaFiles, thumbnails]);
 
   // ラウドネス測定結果のリスナー設定
   useEffect(() => {
@@ -441,8 +476,41 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
                               onClick={(e) => handleMediaClick(media, e)}
                             >
                               <div className="media-thumbnail">
-                                {thumbnails[media.id] ? (
-                                  <img src={thumbnails[media.id]} alt={media.name} />
+                                {/* IDデバッグ表示を削除 */}
+                                
+                                {/* シンプルな表示ロジック - サムネイルを最大限表示 */}
+                                {media.thumbnailUrl ? (
+                                  <img 
+                                    src={media.thumbnailUrl} 
+                                    alt={media.name} 
+                                    style={{ 
+                                      width: '100%', 
+                                      height: '100%',
+                                      objectFit: 'cover',
+                                      objectPosition: 'center',
+                                      borderRadius: '4px'
+                                    }} 
+                                    onError={(e) => {
+                                      console.error('サムネイル読み込みエラー:', media.thumbnailUrl);
+                                      e.currentTarget.style.display = 'none';
+                                    }}
+                                  />
+                                ) : thumbnails[media.id] ? (
+                                  <img 
+                                    src={thumbnails[media.id].url} 
+                                    alt={media.name} 
+                                    style={{ 
+                                      width: '100%', 
+                                      height: '100%',
+                                      objectFit: 'cover',
+                                      objectPosition: 'center',
+                                      borderRadius: '4px'
+                                    }} 
+                                    onError={(e) => {
+                                      console.error('サムネイル読み込みエラー:', thumbnails[media.id]?.url);
+                                      e.currentTarget.style.display = 'none';
+                                    }}
+                                  />
                                 ) : (
                                   <div className="thumbnail-placeholder">
                                     {media.type === 'video' ? '🎬' : '🖼️'}
@@ -523,6 +591,12 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
             </Droppable>
           </DragDropContext>
         )}
+      </div>
+      
+      {/* デバッグ情報 */}
+      <div className="debug-info" style={{ fontSize: '10px', color: '#999', padding: '4px', display: 'none' }}>
+        <div>メディア件数: {mediaFiles.length}</div>
+        <div>サムネイル件数: {Object.keys(thumbnails).length}</div>
       </div>
     </div>
   );

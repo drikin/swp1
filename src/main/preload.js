@@ -8,7 +8,7 @@ console.log('Preload script executing...');
 document.addEventListener('DOMContentLoaded', () => {
   const meta = document.createElement('meta');
   meta.httpEquiv = 'Content-Security-Policy';
-  meta.content = "default-src 'self'; img-src 'self' data: blob:; script-src 'self'; style-src 'self' 'unsafe-inline';";
+  meta.content = "default-src 'self'; img-src 'self' data: blob: file:; script-src 'self'; style-src 'self' 'unsafe-inline';";
   document.head.appendChild(meta);
 });
 
@@ -76,7 +76,25 @@ try {
       console.log(`イベントリスナー登録: ${channel}`);
       // 許可されたチャンネルのみリスナー登録を許可
       if (validEventChannels.includes(channel)) {
-        const subscription = (event, ...args) => callback(...args);
+        // ラッパー関数を作成して、元のイベントデータを処理
+        const subscription = (event, ...args) => {
+          // サムネイル生成イベントの詳細なログ出力
+          if (channel === 'thumbnail-generated') {
+            console.log('サムネイル生成イベント受信(preload):', JSON.stringify(args, null, 2));
+            
+            // データの形式を確認
+            const data = args[0];
+            if (data && data.filePath && typeof data.filePath === 'string') {
+              // シンプルにfile://プロトコルを追加
+              console.log('サムネイルファイルパスを変換:', data.filePath);
+              data.filePath = `file://${data.filePath}`;
+            }
+          }
+          
+          // コールバック関数を呼び出す
+          callback(...args);
+        };
+        
         ipcRenderer.on(channel, subscription);
         
         // 登録解除用の関数を返す
@@ -108,17 +126,98 @@ try {
     getMediaInfo: (filePath) => ipcRenderer.invoke('get-media-info', filePath),
     generateWaveform: (filePath, outputPath) => ipcRenderer.invoke('generate-waveform', filePath, outputPath),
     generateThumbnail: (pathOrOptions, fileId) => {
-      // App.tsxからは(path, id)の形式で呼び出されるため、両方の形式に対応
+      // 適切なパラメータフォーマットに変換
+      let params;
       if (typeof pathOrOptions === 'string') {
         // 個別のパラメータとして呼び出された場合
-        return ipcRenderer.invoke('generate-thumbnail', { 
+        params = { 
           filePath: pathOrOptions, 
           fileId: fileId 
-        });
+        };
       } else {
         // オブジェクトとして呼び出された場合
-        return ipcRenderer.invoke('generate-thumbnail', pathOrOptions);
+        params = pathOrOptions;
       }
+      
+      console.log('サムネイル生成リクエスト(preload):', params);
+      
+      return ipcRenderer.invoke('generate-thumbnail', params).then(result => {
+        console.log('サムネイル生成結果(preload):', result);
+        
+        // 単純な文字列（ファイルパス）の場合
+        if (typeof result === 'string') {
+          console.log('ファイルパスを返します:', result);
+          return `file://${result}`;
+        }
+        
+        // ペンディング状態のタスクの場合
+        if (result && result.taskId && result.pending) {
+          console.log('タスク待機が必要:', result.taskId);
+          
+          // タスク完了を待機する関数
+          const waitForTaskCompletion = (taskId) => {
+            return new Promise((resolve, reject) => {
+              console.log('タスク完了を待機中:', taskId);
+              
+              // タスク結果を取得
+              const getTaskResult = () => {
+                console.log('タスク状態をチェック:', taskId);
+                return ipcRenderer.invoke('get-task-result', taskId)
+                  .then(taskResult => {
+                    console.log('タスク結果:', taskResult);
+                    
+                    if (taskResult.success) {
+                      // タスク完了、結果を返す
+                      console.log('タスク完了:', taskId, 'データ:', taskResult.data);
+                      
+                      // データがオブジェクトの場合はfilePathプロパティを取得
+                      if (taskResult.data && typeof taskResult.data === 'object') {
+                        if (taskResult.data.filePath) {
+                          console.log('タスク結果からファイルパスを取得:', taskResult.data.filePath);
+                          resolve(`file://${taskResult.data.filePath}`);
+                        } else {
+                          console.error('タスク結果にfilePath属性がありません:', taskResult.data);
+                          reject(new Error('タスク結果にファイルパスがありません'));
+                        }
+                      } 
+                      // データが文字列の場合は直接使用（後方互換性）
+                      else if (typeof taskResult.data === 'string') {
+                        console.log('タスク結果が文字列です:', taskResult.data);
+                        resolve(`file://${taskResult.data}`);
+                      }
+                      else {
+                        console.error('無効なタスク結果データ形式:', taskResult.data);
+                        reject(new Error('タスク結果にファイルパスがありません'));
+                      }
+                    } else if (taskResult.status === 'error') {
+                      // タスクエラー
+                      reject(new Error(`タスクエラー: ${taskResult.error || '不明なエラー'}`));
+                    } else {
+                      // まだ完了していない
+                      console.log('タスクはまだ完了していません。再試行します...');
+                      // 1秒後に再試行
+                      setTimeout(getTaskResult, 1000);
+                    }
+                  })
+                  .catch(error => {
+                    console.error('タスク結果取得エラー:', error);
+                    reject(error);
+                  });
+              };
+              
+              // 初回チェック
+              getTaskResult();
+            });
+          };
+          
+          // タスク完了を待機して結果を返す
+          return waitForTaskCompletion(result.taskId);
+        }
+        
+        // その他のケース（エラーなど）
+        console.warn('不明な結果形式:', result);
+        return result;
+      });
     },
     exportCombinedVideo: (options) => ipcRenderer.invoke('export-combined-video', options),
     measureLoudness: (filePath) => {

@@ -280,13 +280,20 @@ const App: React.FC = () => {
             setMediaFiles(prev => [...prev, ...newFiles]);
             setStatus(`${newFiles.length}件のファイルを追加しました`);
             
-            // 追加されたファイルについて自動的にラウドネス測定を開始
+            // 追加されたファイルについて自動的にサムネイル生成とラウドネス測定を開始
             newFiles.forEach(file => {
-              // ファイルの種類をチェック
-              if (file.type === 'video' || file.type === 'audio') {
+              if (file.id && file.path) {
+                // サムネイル生成を要求
+                generateThumbnailForMedia(file);
+                
+                // ラウドネス測定を開始
                 startLoudnessMeasurement(file);
+              } else {
+                console.error('無効なメディアオブジェクト：IDまたはパスがありません', file);
               }
             });
+            
+            setStatus(`${newFiles.length}個のファイルを追加しました`);
           } else {
             setStatus('有効なメディアファイルが見つかりませんでした');
           }
@@ -443,86 +450,27 @@ const App: React.FC = () => {
     }
   };
 
-  // サムネイル生成イベントリスナー
+  // サムネイル生成イベントのリスナー
   useEffect(() => {
-    if (window.api) {
-      const removeListener = window.api.on('thumbnail-generated', (data: { id: string, thumbnail: string }) => {
-        const { id, thumbnail } = data;
-        setMediaFiles(prev => prev.map(media => 
-          media.id === id ? { ...media, thumbnail } : media
-        ));
-      });
+    // サムネイル生成イベントをリッスン
+    const removeListener = window.api.on('thumbnail-generated', (data: { id: string, filePath: string }) => {
+      const { id, filePath } = data;
       
-      return () => {
-        removeListener();
-      };
-    }
-  }, []);
+      // サムネイル情報をメディアに追加
+      // 注: ここではファイルパスをthumbnaildプロパティに設定
+      setMediaFiles(mediaList => 
+        mediaList.map(media => 
+          media.id === id ? { 
+            ...media, 
+            thumbnail: filePath,
+            thumbnailUrl: `file://${filePath}`,
+            thumbnailGenerating: false 
+          } : media
+        )
+      );
+    });
 
-  // ラウドネス測定イベントリスナー
-  useEffect(() => {
-    if (window.api) {
-      // ラウドネス測定完了イベント
-      const removeMeasuredListener = window.api.on('loudness-measured', (data: { id: string, loudnessInfo: any }) => {
-        const { id, loudnessInfo } = data;
-        console.log('ラウドネス測定完了イベント受信:', id, loudnessInfo);
-        
-        setMediaFiles(prev => {
-          // 対象メディアを見つける
-          const targetMedia = prev.find(m => m.id === id);
-          const mediaName = targetMedia?.name || 'メディア';
-          
-          // 状態更新後に完了メッセージを表示
-          setTimeout(() => {
-            setStatus(`${mediaName}のラウドネス測定が完了しました`);
-          }, 0);
-          
-          // メディア状態を更新して返す
-          return prev.map(m => 
-            m.id === id ? { 
-              ...m, 
-              loudnessInfo, 
-              loudnessNormalization: true, 
-              isMeasuringLoudness: false 
-            } : m
-          );
-        });
-      });
-      
-      // ラウドネス測定エラーイベント
-      const removeErrorListener = window.api.on('loudness-error', (data: { id: string, error?: string }) => {
-        const { id, error } = data;
-        console.log('ラウドネス測定エラーイベント受信:', id, error || 'エラー詳細なし');
-        
-        setMediaFiles(prev => {
-          // 対象メディアを見つける
-          const targetMedia = prev.find(m => m.id === id);
-          const mediaName = targetMedia?.name || 'メディア';
-          
-          // 状態更新後にエラーメッセージを表示
-          setTimeout(() => {
-            const errorMessage = error === 'タイムアウト' 
-              ? `${mediaName}のラウドネス測定がタイムアウトしました` 
-              : `${mediaName}のラウドネス測定に失敗しました`;
-            setStatus(errorMessage);
-          }, 0);
-          
-          // メディア状態を更新して返す
-          return prev.map(m => 
-            m.id === id ? { 
-              ...m, 
-              isMeasuringLoudness: false, 
-              loudnessError: true 
-            } : m
-          );
-        });
-      });
-      
-      return () => {
-        removeMeasuredListener();
-        removeErrorListener();
-      };
-    }
+    return () => removeListener();
   }, []);
 
   // サムネイル生成用のヘルパー関数
@@ -553,10 +501,12 @@ const App: React.FC = () => {
       window.api.generateThumbnail(media.path, media.id)
         .then((result: any) => {
           if (result) {
-            console.log('サムネイル生成成功:', media.id);
-            // サムネイル生成完了フラグを設定
+            console.log('サムネイル生成成功:', media.id, '結果:', result);
+            
+            // シンプルな処理 - 結果は既にfile://プロトコル付きのパス文字列
             handleUpdateMedia(media.id, { 
               thumbnail: result,
+              thumbnailUrl: result,
               thumbnailGenerating: false 
             });
           } else {
@@ -651,15 +601,15 @@ const App: React.FC = () => {
       console.log('追加されたメディア:', newFiles);
       
       // 明示的にサムネイル生成とラウドネス測定を呼び出し
-      newFiles.forEach(media => {
-        if (media.id && media.path) {
+      newFiles.forEach(file => {
+        if (file.id && file.path) {
           // サムネイル生成を要求
-          generateThumbnailForMedia(media);
+          generateThumbnailForMedia(file);
           
           // ラウドネス測定を開始
-          startLoudnessMeasurement(media);
+          startLoudnessMeasurement(file);
         } else {
-          console.error('無効なメディアオブジェクト：IDまたはパスがありません', media);
+          console.error('無効なメディアオブジェクト：IDまたはパスがありません', file);
         }
       });
       
