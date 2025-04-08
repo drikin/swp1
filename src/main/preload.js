@@ -225,10 +225,14 @@ try {
       let params;
       if (typeof filePath === 'string') {
         // 個別のパラメータとして呼び出された場合
-        params = { 
-          filePath: filePath, 
-          fileId: fileId 
-        };
+        params = filePath;
+        // fileIdがある場合は新しい形式に統一
+        if (fileId) {
+          params = { 
+            filePath: filePath, 
+            fileId: fileId 
+          };
+        }
       } else {
         // オブジェクトとして呼び出された場合
         params = filePath;
@@ -240,20 +244,14 @@ try {
         console.log('ラウドネス測定結果(preload):', result);
         
         // 単純なオブジェクト（測定結果）の場合
-        if (result && result.integrated_loudness !== undefined) {
-          // 既にフォーマット済みの結果オブジェクト
-          console.log('ラウドネス測定結果を返します');
-          
-          // ファイルパスがあれば、file://プロトコルを追加
-          if (result.filePath && typeof result.filePath === 'string') {
-            result.fileUrl = `file://${result.filePath}`;
-          }
-          
-          return result;
+        if (result && (result.integrated_loudness !== undefined || 
+            (result.success && result.data && result.data.integrated_loudness !== undefined))) {
+          console.log('ラウドネス測定結果を直接返します');
+          return result.data || result;
         }
         
         // ペンディング状態のタスクの場合
-        if (result && result.taskId && result.pending) {
+        if (result && result.taskId) {
           console.log('タスク待機が必要:', result.taskId);
           
           // タスク完了を待機する関数
@@ -268,21 +266,10 @@ try {
                   .then(taskResult => {
                     console.log('タスク結果:', taskResult);
                     
-                    if (taskResult.success) {
+                    if (taskResult.success && taskResult.data) {
                       // タスク完了、結果を返す
                       console.log('タスク完了:', taskId, 'データ:', taskResult.data);
-                      
-                      // 結果データが適切な形式か確認
-                      if (taskResult.data && taskResult.data.integrated_loudness !== undefined) {
-                        // ファイルパスがあれば、file://プロトコルを追加
-                        if (taskResult.data.filePath && typeof taskResult.data.filePath === 'string') {
-                          taskResult.data.fileUrl = `file://${taskResult.data.filePath}`;
-                        }
-                        resolve(taskResult.data);
-                      } else {
-                        console.error('タスク結果に測定データがありません:', taskResult.data);
-                        reject(new Error('タスク結果に測定データがありません'));
-                      }
+                      resolve(taskResult.data);
                     } else if (taskResult.status === 'error') {
                       // タスクエラー
                       reject(new Error(`タスクエラー: ${taskResult.error || '不明なエラー'}`));

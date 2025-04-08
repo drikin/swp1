@@ -37,11 +37,12 @@ console.log('FFmpeg path:', ffmpegPath);
 const ffmpeg = require('fluent-ffmpeg');
 ffmpeg.setFfmpegPath(ffmpegPath);
 
+// 作業ディレクトリのパス
+const workDir = path.join(os.homedir(), 'Super Watarec');
+const thumbnailDir = path.join(workDir, 'thumbnails');
+
 // ウィンドウオブジェクトのグローバル参照を保持
 let mainWindow;
-
-// 一時ディレクトリのパス
-const tempDir = path.join(app.getPath('temp'), 'swp1-thumbnails');
 
 function createWindow() {
   // ブラウザウィンドウを作成
@@ -85,44 +86,79 @@ app.whenReady().then(async () => {
     createWindow();
     console.log('メインウィンドウ作成完了');
     
-    // 一時ディレクトリを作成
-    if (!fs.existsSync(tempDir)) {
-      fs.mkdirSync(tempDir, { recursive: true });
+    // 作業ディレクトリを作成
+    if (!fs.existsSync(workDir)) {
+      fs.mkdirSync(workDir, { recursive: true });
+      console.log('作業ディレクトリを作成しました:', workDir);
     }
-    console.log('一時ディレクトリの確認完了');
     
-    // 新しいタスク管理システムを初期化
-    try {
-      console.log('タスク管理システムの初期化を開始します...');
-      globalTaskManager = initializeTaskSystem(ipcMain);
-      console.log('initializeTaskSystem結果:', globalTaskManager ? 'インスタンス生成成功' : 'インスタンス生成失敗');
+    // サムネイルディレクトリを作成
+    if (!fs.existsSync(thumbnailDir)) {
+      fs.mkdirSync(thumbnailDir, { recursive: true });
+      console.log('サムネイルディレクトリを作成しました:', thumbnailDir);
+    }
+    console.log('作業ディレクトリの確認完了');
+    
+    // タスク管理システムの初期化
+    console.log('タスク管理システムの初期化を開始します...');
+    // IPC Mainと新しいタスクマネージャーを初期化
+    const taskManager = initializeTaskSystem(ipcMain);
+    console.log('initializeTaskSystem結果:', taskManager ? 'インスタンス生成成功' : 'インスタンス生成失敗');
+
+    if (taskManager) {
+      // グローバル変数に設定
+      globalTaskManager = taskManager;
+      console.log('globalTaskManagerを設定しました');
+
+      // ウィンドウにタスクマネージャーを設定
+      mainWindow.taskManager = taskManager;
+      console.log('メインウィンドウをタスクマネージャーに設定しました');
+
+      // タスク関連のイベントリスナーを追加
+      setupTaskEventListeners(mainWindow);
+      console.log('タスクイベントリスナーを設定しました');
       
-      if (globalTaskManager) {
-        console.log('globalTaskManagerを設定しました');
-        
-        // メインウィンドウを設定
-        if (mainWindow) {
-          globalTaskManager.setMainWindow(mainWindow);
-          console.log('メインウィンドウをタスクマネージャーに設定しました');
-        }
-        
-        // タスク管理システムのイベントリスナーを設定
-        setupTaskEventListeners();
-        console.log('タスクイベントリスナーを設定しました');
-        
-        // タスク管理システムが正しく初期化されたか確認
-        console.log('タスクマネージャーのメソッド:',
-          'getAllTasks:', typeof globalTaskManager.getAllTasks,
-          'getTaskById:', typeof globalTaskManager.getTaskById,
-          'getTasksByMedia:', typeof globalTaskManager.getTasksByMedia
-        );
-      } else {
-        console.error('タスク管理システムの初期化に失敗: taskManagerがnullです');
-      }
-    } catch (error) {
-      console.error('タスク管理システムの初期化エラー:', error);
+      // タスクマネージャーが持つメソッドの確認
+      console.log('タスクマネージャーのメソッド:', 
+        'getAllTasks:', typeof taskManager.getAllTasks, 
+        'getTaskById:', typeof taskManager.getTaskById,
+        'getTasksByMedia:', typeof taskManager.getTasksByMedia
+      );
     }
-    
+  
+    // メディア関連APIが登録されていることを確認するため、直接再登録する
+    const { registerMediaAPI } = require('./api/media-api');
+    try {
+      console.log('メディア関連APIを直接登録します...');
+      registerMediaAPI(ipcMain);
+      console.log('メディア関連APIの登録が完了しました');
+    } catch (error) {
+      console.error('メディア関連APIの登録中にエラーが発生しました:', error);
+    }
+
+    // サムネイル生成用のAPIハンドラを直接登録
+    console.log('サムネイル生成ハンドラを直接登録します...');
+    try {
+      // 既存のハンドラを削除（エラーを無視）
+      try {
+        ipcMain.removeHandler('generate-thumbnail');
+        console.log('既存のgenerate-thumbnailハンドラを削除しました');
+      } catch (err) {
+        // ハンドラが存在しない場合は無視
+      }
+      
+      // サムネイル生成ハンドラを登録
+      ipcMain.handle('generate-thumbnail', async (event, pathOrParams, fileId) => {
+        console.log('サムネイル生成リクエスト受信:', pathOrParams, fileId);
+        const result = await generateThumbnail(pathOrParams, fileId);
+        console.log('サムネイル生成結果:', result);
+        return result;
+      });
+      console.log('サムネイル生成ハンドラを登録しました');
+    } catch (error) {
+      console.error('サムネイル生成ハンドラの登録中にエラーが発生しました:', error);
+    }
+
     // FFmpegサービスの起動
     ffmpegServiceManager.start().catch(error => {
       console.error('FFmpegサービス起動エラー:', error);
@@ -224,9 +260,23 @@ const SUPPORTED_EXTENSIONS = {
 };
 
 // サムネイルを生成する関数
-async function generateThumbnail(filePath, fileId) {
+async function generateThumbnail(pathOrParams, fileId) {
   try {
-    console.log('サムネイル生成開始:', filePath, 'ID:', fileId);
+    console.log('サムネイル生成開始 - 引数:', pathOrParams, 'ID:', fileId);
+    
+    // パラメータの正規化
+    let filePath, mediaId;
+    
+    // オブジェクト形式のパラメータ対応
+    if (typeof pathOrParams === 'object') {
+      filePath = pathOrParams.filePath || pathOrParams.path;
+      mediaId = pathOrParams.fileId || pathOrParams.mediaId || fileId;
+      console.log('オブジェクト形式のパラメータを処理:', { filePath, mediaId });
+    } else {
+      filePath = pathOrParams;
+      mediaId = fileId;
+      console.log('文字列形式のパラメータを処理:', { filePath, mediaId });
+    }
     
     // ファイルパスの検証
     if (!filePath || typeof filePath !== 'string') {
@@ -241,15 +291,15 @@ async function generateThumbnail(filePath, fileId) {
     }
     
     // IDの検証
-    if (!fileId) {
+    if (!mediaId) {
       // IDが提供されていない場合は、ファイル名からIDを生成
-      fileId = `file-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
-      console.log('IDが提供されていないため新しいIDを生成:', fileId);
+      mediaId = `file-${Date.now()}-${Math.floor(Math.random() * 10000)}`;
+      console.log('IDが提供されていないため新しいIDを生成:', mediaId);
     }
     
     const ext = path.extname(filePath).toLowerCase();
-    // サムネイルを一時ディレクトリに保存
-    const thumbnailPath = path.join(tempDir, `thumbnail-${fileId}.jpg`);
+    // サムネイルをサムネイルディレクトリに保存
+    const thumbnailPath = path.join(thumbnailDir, `thumbnail-${mediaId}.jpg`);
     console.log('サムネイル保存先:', thumbnailPath);
     
     // 動画と画像で異なる処理
@@ -280,26 +330,34 @@ async function generateThumbnail(filePath, fileId) {
       return null; // サポートされていない形式
     }
     
-    // 生成されたサムネイルをBase64エンコード
+    // 生成されたサムネイルファイルをチェック
     if (fs.existsSync(thumbnailPath)) {
-      const imageBuffer = fs.readFileSync(thumbnailPath);
-      if (imageBuffer.length > 0) {
-        const base64Data = imageBuffer.toString('base64');
-        console.log('サムネイル生成成功、Base64データ長:', base64Data.length);
+      const fileStats = fs.statSync(thumbnailPath);
+      if (fileStats.size > 0) {
+        console.log('サムネイル生成成功、ファイルサイズ:', fileStats.size);
+        
+        // シンプルにファイルパスをデータとして準備
+        const thumbnailData = {
+          id: mediaId,
+          filePath: thumbnailPath
+        };
         
         // サムネイル生成に成功したことをレンダラープロセスに通知
         if (mainWindow) {
-          console.log('サムネイル生成通知送信 ID:', fileId);
-          mainWindow.webContents.send('thumbnail-generated', {
-            id: fileId,
-            thumbnail: `data:image/jpeg;base64,${base64Data}`
-          });
+          console.log('サムネイル生成通知送信 ID:', mediaId);
+          try {
+            mainWindow.webContents.send('thumbnail-generated', thumbnailData);
+          } catch (err) {
+            console.error('サムネイル通知のIPC送信エラー:', err);
+          }
         } else {
           console.error('mainWindowが利用できません');
         }
-        return `data:image/jpeg;base64,${base64Data}`;
+        
+        // ファイルパスを返す（文字列として）
+        return thumbnailPath;
       } else {
-        console.error('サムネイル画像バッファが空です');
+        console.error('サムネイル画像ファイルが空です');
       }
     } else {
       console.error('サムネイルファイルが生成されませんでした:', thumbnailPath);
@@ -1199,11 +1257,23 @@ function setupTaskEventListeners() {
 
   // タスク更新イベントをレンダラープロセスに送信
   globalTaskManager.eventEmitter.on('tasks-updated', (taskSummary) => {
-    // 全ウィンドウにイベントを送信
-    BrowserWindow.getAllWindows().forEach(window => {
-      if (!window.isDestroyed()) {
-        window.webContents.send('tasks-updated', taskSummary);
-      }
-    });
+    // シリアライズできるか確認
+    try {
+      // データをJSONとして一度シリアライズしてみて問題ないか確認
+      JSON.stringify(taskSummary);
+      
+      // 全ウィンドウにイベントを送信
+      BrowserWindow.getAllWindows().forEach(window => {
+        if (!window.isDestroyed()) {
+          try {
+            window.webContents.send('tasks-updated', taskSummary);
+          } catch (error) {
+            console.error('ウィンドウへのタスク更新送信エラー:', error);
+          }
+        }
+      });
+    } catch (serializeError) {
+      console.error('タスクデータのシリアライズに失敗しました:', serializeError);
+    }
   });
 }

@@ -50,8 +50,32 @@ function initializeTaskSystem(ipcMain) {
     console.log('タスクタイプを登録中...');
     registerTaskTypes(taskRegistry);
     
-    // APIの登録
+    // APIの登録（安全なハンドラ登録を行うように修正）
     console.log('APIを登録中...');
+    
+    // セーフハンドラ登録関数を作成
+    const safeRegisterHandler = (channel, handler) => {
+      try {
+        // 既存のハンドラを上書きするため、一旦削除を試みる
+        try {
+          ipcMain.removeHandler(channel);
+          console.log(`既存の ${channel} ハンドラを削除しました`);
+        } catch (error) {
+          // ハンドラが存在しない場合のエラーは無視
+        }
+        
+        // 新しいハンドラを登録
+        ipcMain.handle(channel, handler);
+        console.log(`${channel} ハンドラを登録しました`);
+      } catch (error) {
+        console.error(`${channel} ハンドラの登録中にエラーが発生しました:`, error);
+      }
+    };
+    
+    // セーフハンドラ登録関数をタスクマネージャーに設定
+    taskManager.safeRegisterHandler = safeRegisterHandler;
+    
+    // APIの登録
     registerTaskAPI(ipcMain, taskManager);
     registerMediaAPI(ipcMain);
     
@@ -162,11 +186,45 @@ function setupTaskEvents(taskManager) {
           loudness: task.data
         });
       } else if (task.type === 'thumbnail') {
-        window.webContents.send('thumbnail-generated', {
-          taskId: task.id,
-          fileName: task.mediaPath,
-          thumbnail: task.data.base64
+        console.log('サムネイル生成完了:', task.id);
+        console.log('タスク内容:', {
+          id: task.id,
+          type: task.type,
+          status: task.status,
+          mediaPath: typeof task.mediaPath === 'object' ? JSON.stringify(task.mediaPath) : task.mediaPath
         });
+        
+        // サムネイルデータの詳細確認
+        const thumbnailDataSummary = task.data ? {
+          hasBase64: !!task.data.base64,
+          base64Length: task.data.base64 ? task.data.base64.length : 0,
+          base64Snippet: task.data.base64 ? `${task.data.base64.substring(0, 30)}...` : 'なし',
+          filePath: task.data.filePath || 'なし',
+          timePosition: task.data.timePosition,
+          size: task.data.size
+        } : 'データなし';
+        
+        console.log('サムネイルデータ概要:', thumbnailDataSummary);
+        
+        // 送信データの準備
+        const eventData = {
+          id: task.id,
+          fileName: task.mediaPath,
+          thumbnail: task.data && task.data.base64 ? task.data.base64 : null
+        };
+        
+        console.log('送信データ:', {
+          id: eventData.id,
+          fileName: typeof eventData.fileName === 'object' ? JSON.stringify(eventData.fileName) : eventData.fileName,
+          hasThumbnail: !!eventData.thumbnail
+        });
+        
+        try {
+          window.webContents.send('thumbnail-generated', eventData);
+          console.log('thumbnail-generatedイベント送信完了');
+        } catch (error) {
+          console.error('thumbnail-generatedイベント送信エラー:', error);
+        }
       }
     }
   });

@@ -3,6 +3,9 @@
  * IPCメインプロセスとレンダープロセス間の通信を処理
  */
 
+const fs = require('fs');
+const path = require('path');
+
 /**
  * タスク関連のAPIハンドラを登録
  * @param {Electron.IpcMain} ipcMain - Electron IPC Mainオブジェクト
@@ -201,77 +204,6 @@ function registerTaskAPI(ipcMain, taskManager) {
       };
     } catch (error) {
       console.error('タイプ検索エラー:', error);
-      return { 
-        success: false, 
-        error: error.message 
-      };
-    }
-  });
-
-  // ラウドネス測定（既存API互換）
-  ipcMain.handle('measure-loudness', async (event, params) => {
-    try {
-      // params が文字列の場合は従来の形式（ファイルパスのみ）として扱う
-      let mediaPath, fileId, options = {};
-      
-      if (typeof params === 'string') {
-        mediaPath = params;
-      } else if (typeof params === 'object' && params !== null) {
-        // 新しい形式: { filePath: string, fileId: string, ... }
-        mediaPath = params.filePath;
-        fileId = params.fileId;
-        options = params;
-      } else {
-        return { success: false, error: '無効なパラメータ形式です' };
-      }
-      
-      if (!mediaPath) {
-        return { success: false, error: 'メディアパスが指定されていません' };
-      }
-      
-      console.log('ラウドネス測定リクエスト:', { mediaPath, fileId, options });
-      
-      // 既存のラウドネスタスクを探す
-      const tasks = taskManager.getTasksByMedia(mediaPath, 'loudness');
-      const existingTask = tasks.find(t => t.status === 'completed');
-      
-      // 完了済みタスクがあればそのファイルパスを返す
-      if (existingTask && existingTask.status === 'completed' && existingTask.data && existingTask.data.filePath) {
-        console.log('既存のラウドネス測定結果を返します:', existingTask.data.filePath);
-        return existingTask.data;
-      }
-      
-      // 進行中のタスクがあれば待機するよう伝える
-      const pendingTask = tasks.find(t => 
-        (t.status === 'processing' || t.status === 'pending')
-      );
-      
-      if (pendingTask) {
-        console.log('進行中のラウドネス測定タスクを返します:', pendingTask.id);
-        return { 
-          taskId: pendingTask.id,
-          status: pendingTask.status,
-          pending: true
-        };
-      }
-      
-      // 新しいタスクを作成
-      const taskId = taskManager.createTask({
-        type: 'loudness',
-        mediaPath,
-        fileId, // メディアIDを追加
-      });
-      
-      console.log('新しいラウドネス測定タスクを作成:', taskId);
-      
-      // タスクIDを返す（ペンディング状態を明示）
-      return { 
-        taskId,
-        status: 'pending',
-        pending: true 
-      };
-    } catch (error) {
-      console.error('ラウドネス測定エラー:', error);
       return { 
         success: false, 
         error: error.message 
@@ -560,33 +492,271 @@ function registerTaskAPI(ipcMain, taskManager) {
     }
   });
 
-  // 波形データ取得（既存API互換）
+  // 波形データ取得（改良版）
   ipcMain.handle('get-waveform-data', async (event, taskId) => {
+    console.log(`波形データ取得リクエスト受信 - タスクID: ${taskId}`);
+    
+    if (!taskId) {
+      console.error('タスクIDが指定されていません');
+      return { success: false, error: 'タスクIDが指定されていません' };
+    }
+    
     try {
+      // タスク情報の取得
       const task = taskManager.getTaskById(taskId);
       if (!task) {
-        return { 
-          success: false, 
-          error: 'タスクが見つかりません' 
-        };
+        console.error(`指定されたタスクが見つかりません: ${taskId}`);
+        return { success: false, error: '指定されたタスクが見つかりません' };
       }
       
+      console.log(`波形タスク情報: ${JSON.stringify(task)}`);
+      
+      // タスクが完了していない場合
       if (task.status !== 'completed') {
+        console.log(`タスク [${taskId}] はまだ完了していません (status: ${task.status})`);
         return { 
-          success: false, 
-          error: 'タスクはまだ完了していません',
-          status: task.status
+          success: true, 
+          taskId: task.id, 
+          status: task.status,
+          data: null 
         };
       }
       
-      // 互換性のために古い形式に変換
-      return {
+      // 波形データファイルパスの取得
+      const homeDir = require('os').homedir();
+      const baseDir = path.join(homeDir, 'Super Watarec');
+      const waveformDir = path.join(baseDir, 'waveform');
+      const waveformPath = path.join(waveformDir, `waveform_task_${taskId}.json`);
+      
+      console.log(`波形データファイルの確認: ${waveformPath}`);
+      
+      // ファイルの存在確認
+      if (!fs.existsSync(waveformPath)) {
+        console.error(`波形データファイルが見つかりません: ${waveformPath}`);
+        
+        // タスク結果を直接使用
+        console.log('タスク結果から波形データを取得します');
+        
+        // タスク結果からwaveformデータを取得
+        const taskResult = task.result || {};
+        console.log('タスク結果の完全構造:', JSON.stringify(taskResult, null, 2));
+        
+        // 波形データの存在をチェック (すべての可能な場所)
+        let waveformData = null;
+        let duration = 0;
+        
+        if (taskResult.data && taskResult.data.data && Array.isArray(taskResult.data.data.waveform)) {
+          console.log('形式1: taskResult.data.data.waveform');
+          waveformData = taskResult.data.data.waveform;
+          duration = taskResult.data.duration || 0;
+        } else if (taskResult.data && Array.isArray(taskResult.data.waveform)) {
+          console.log('形式2: taskResult.data.waveform');
+          waveformData = taskResult.data.waveform;
+          duration = taskResult.data.duration || 0;
+        } else if (Array.isArray(taskResult.waveform)) {
+          console.log('形式3: taskResult.waveform');
+          waveformData = taskResult.waveform;
+          duration = taskResult.duration || 0;
+        } else if (taskResult.data && taskResult.data.waveform && Array.isArray(taskResult.data.waveform)) {
+          console.log('形式4: taskResult.data.waveform');
+          waveformData = taskResult.data.waveform;
+          duration = taskResult.data.duration || 0;
+        } else if (taskResult.data && Array.isArray(taskResult.data)) {
+          console.log('形式5: taskResult.data (array)');
+          waveformData = taskResult.data;
+          duration = taskResult.duration || 0;
+        }
+        
+        if (waveformData && waveformData.length > 0) {
+          console.log(`タスク結果から波形データを返します (${waveformData.length}ポイント)`);
+          
+          // レスポンス形式を明確に統一
+          const response = {
+            success: true,
+            waveform: waveformData,  // 直接waveformプロパティとして設定
+            duration: duration,
+            data: {
+              waveform: waveformData,
+              duration: duration
+            }
+          };
+          
+          console.log('レスポンス形式:', JSON.stringify(response, null, 2));
+          return response;
+        }
+        
+        return { success: false, error: '波形データファイルが見つかりません' };
+      }
+      
+      // JSONファイルの読み込み
+      const fileContent = fs.readFileSync(waveformPath, 'utf8');
+      const waveformData = JSON.parse(fileContent);
+      
+      console.log(`波形データを読み込みました: ${waveformPath} (${waveformData.waveform ? waveformData.waveform.length : 'なし'}ポイント)`);
+      
+      // レスポンス形式を明確に統一
+      const response = {
         success: true,
-        waveform: task.data.waveform,
-        duration: task.data.duration
+        waveform: waveformData.waveform || [],  // 直接waveformプロパティとして設定
+        duration: waveformData.duration || 0, 
+        data: {
+          waveform: waveformData.waveform || [],
+          duration: waveformData.duration || 0
+        }
       };
+      
+      console.log('返送する波形データ構造:', JSON.stringify(response, null, 2));
+      return response;
     } catch (error) {
       console.error('波形データ取得エラー:', error);
+      return { success: false, error: error.message };
+    }
+  });
+
+  // ラウドネス測定（既存API互換）
+  ipcMain.handle('measure-loudness', async (event, params) => {
+    try {
+      // paramsが文字列の場合は従来の形式（ファイルパスのみ）として扱う
+      let mediaPath, fileId;
+      
+      if (typeof params === 'string') {
+        mediaPath = params;
+      } else if (typeof params === 'object' && params !== null) {
+        // 新しい形式: { filePath: string, fileId: string, ... }
+        mediaPath = params.filePath;
+        fileId = params.fileId;
+      } else {
+        return { success: false, error: '無効なパラメータ形式です' };
+      }
+      
+      if (!mediaPath) {
+        return { success: false, error: 'メディアパスが指定されていません' };
+      }
+      
+      console.log('ラウドネス測定リクエスト:', { mediaPath, fileId });
+      
+      // 既存のラウドネスタスクを探す
+      const tasks = taskManager.getTasksByMedia(mediaPath, 'loudness');
+      
+      // 完了済みタスクがあればその結果を返す
+      const completedTask = tasks.find(t => t.status === 'completed');
+      if (completedTask) {
+        console.log('完了済みラウドネスタスクを返します:', completedTask.id);
+        
+        // タスクデータからファイルパスがあれば読み込む
+        if (completedTask.data && completedTask.data.filePath && 
+            fs.existsSync(completedTask.data.filePath)) {
+          try {
+            console.log('ラウドネス測定ファイルを読み込みます:', completedTask.data.filePath);
+            const fileContent = fs.readFileSync(completedTask.data.filePath, 'utf8');
+            const fileData = JSON.parse(fileContent);
+            
+            // ファイルデータとタスクデータを統合
+            return {
+              success: true,
+              data: {
+                integrated_loudness: fileData.integrated_loudness || 
+                                     (fileData.raw ? parseFloat(fileData.raw.input_i) : 0),
+                true_peak: fileData.true_peak || 
+                          (fileData.raw ? parseFloat(fileData.raw.input_tp) : 0),
+                range: fileData.lra || fileData.range || 
+                      (fileData.raw ? parseFloat(fileData.raw.input_lra) : 0),
+                threshold: fileData.threshold || 
+                          (fileData.raw ? parseFloat(fileData.raw.input_thresh) : 0),
+                filePath: completedTask.data.filePath,
+                mediaId: fileId || path.basename(mediaPath)
+              }
+            };
+          } catch (err) {
+            console.error('ラウドネスファイル読み込みエラー:', err);
+            // ファイル読み込みに失敗した場合はタスクデータを直接使用
+          }
+        }
+        
+        // タスクデータを直接返す
+        return {
+          success: true,
+          data: completedTask.data
+        };
+      }
+      
+      // 処理中のタスクがあれば待機するよう伝える
+      const processingTask = tasks.find(t => 
+        t.status === 'processing' || t.status === 'pending'
+      );
+      
+      if (processingTask) {
+        console.log('進行中のラウドネスタスクを返します:', processingTask.id);
+        return { 
+          success: true,
+          taskId: processingTask.id, 
+          status: processingTask.status,
+          pending: true
+        };
+      }
+      
+      // 新しいタスクを作成
+      const taskId = taskManager.createTask({
+        type: 'loudness',
+        mediaPath,
+        fileId: fileId || path.basename(mediaPath)
+      });
+      
+      console.log('新しいラウドネスタスクを作成しました:', taskId);
+      
+      return { 
+        success: true, 
+        taskId, 
+        status: 'pending',
+        pending: true
+      };
+    } catch (error) {
+      console.error('ラウドネス測定エラー:', error);
+      return { 
+        success: false, 
+        error: error.message 
+      };
+    }
+  });
+
+  // 波形生成（既存API互換）
+  ipcMain.handle('generate-waveform', async (event, mediaPath) => {
+    try {
+      if (!mediaPath) {
+        return { success: false, error: 'メディアパスが指定されていません' };
+      }
+      
+      console.log('波形生成リクエスト:', mediaPath);
+      
+      // 既存の波形タスクを探す
+      const tasks = taskManager.getTasksByMedia(mediaPath, 'waveform');
+      const existingTask = tasks.find(t => 
+        t.status === 'completed' || t.status === 'processing' || t.status === 'pending'
+      );
+      
+      if (existingTask) {
+        return { 
+          success: true, 
+          taskId: existingTask.id, 
+          status: existingTask.status 
+        };
+      }
+      
+      // 新しいタスクを作成
+      const taskId = taskManager.createTask({
+        type: 'waveform',
+        mediaPath
+      });
+      
+      console.log('新しい波形タスクを作成しました:', taskId);
+      
+      return { 
+        success: true, 
+        taskId, 
+        status: 'pending' 
+      };
+    } catch (error) {
+      console.error('波形生成エラー:', error);
       return { 
         success: false, 
         error: error.message 
@@ -626,7 +796,7 @@ function registerTaskAPI(ipcMain, taskManager) {
         t.timePosition === timePosition
       );
       
-      // 完了済タスクがあればそのファイルパスを返す
+      // 完了済みタスクがあればそのファイルパスを返す
       if (existingTask && existingTask.status === 'completed' && existingTask.data && existingTask.data.filePath) {
         console.log('既存のサムネイルを返します:', existingTask.data.filePath);
         return existingTask.data.filePath;

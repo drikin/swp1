@@ -6,11 +6,59 @@ const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const EventEmitter = require('events');
+const os = require('os');
 
 class FFmpegService {
   constructor() {
     this.events = new EventEmitter();
     this.processes = new Map(); // タスクIDとFFmpegプロセスのマッピング
+    this.baseWorkDir = this._initializeWorkDirectories();
+  }
+
+  /**
+   * 作業ディレクトリの初期化
+   * @returns {string} - ベース作業ディレクトリのパス
+   */
+  _initializeWorkDirectories() {
+    // ホームディレクトリを取得
+    const homeDir = os.homedir();
+    
+    // ベースとなる作業ディレクトリを定義
+    const baseDir = path.join(homeDir, 'Super Watarec');
+    
+    // 必要なサブディレクトリの定義
+    const subDirs = [
+      'waveform',   // 波形データ用
+      'thumbnails', // サムネイル用
+      'temp',       // その他の一時ファイル用
+      'logs'        // ログファイル用
+    ];
+    
+    // ベースディレクトリが存在しない場合は作成
+    if (!fs.existsSync(baseDir)) {
+      fs.mkdirSync(baseDir, { recursive: true });
+      console.log(`作業ディレクトリを作成しました: ${baseDir}`);
+    }
+    
+    // 各サブディレクトリが存在しない場合は作成
+    for (const dir of subDirs) {
+      const fullPath = path.join(baseDir, dir);
+      if (!fs.existsSync(fullPath)) {
+        fs.mkdirSync(fullPath, { recursive: true });
+        console.log(`サブディレクトリを作成しました: ${fullPath}`);
+      }
+    }
+    
+    return baseDir;
+  }
+  
+  /**
+   * 特定のタイプの作業ディレクトリパスを取得
+   * @param {string} type - ディレクトリタイプ ('waveform', 'thumbnails', 'temp', 'logs')
+   * @returns {string} - 作業ディレクトリのパス
+   */
+  getWorkDir(type) {
+    return path.join(this.baseWorkDir, type);
   }
 
   /**
@@ -115,13 +163,10 @@ class FFmpegService {
       throw new Error('入力ファイルパスが指定されていません');
     }
     
-    // 一時ファイルのパスを生成
-    const tmpDir = path.join(require('os').tmpdir(), 'swp1-waveform');
-    if (!fs.existsSync(tmpDir)) {
-      fs.mkdirSync(tmpDir, { recursive: true });
-    }
+    // 波形データ用ディレクトリを取得
+    const waveformDir = this.getWorkDir('waveform');
     
-    const outputPath = path.join(tmpDir, `waveform_${Date.now()}.json`);
+    const outputPath = path.join(waveformDir, `waveform_${Date.now()}.json`);
     
     // FFmpegのパスを取得
     const ffmpegPath = this._getFFmpegPath();
@@ -235,10 +280,7 @@ class FFmpegService {
     }
     
     // 一時ファイルのパスを生成
-    const tmpDir = path.join(require('os').tmpdir(), 'swp1-loudness');
-    if (!fs.existsSync(tmpDir)) {
-      fs.mkdirSync(tmpDir, { recursive: true });
-    }
+    const tmpDir = this.getWorkDir('temp');
     
     const outputPath = path.join(tmpDir, `loudness_${Date.now()}.json`);
     
@@ -360,7 +402,7 @@ class FFmpegService {
    * @param {number} options.timePosition - 時間位置（秒）
    * @param {string} options.size - サイズ指定（例: '320x240'）
    * @param {string} options.taskId - タスクID
-   * @returns {Promise<object>} - サムネイル情報
+   * @returns {Promise<object>} - サムネイル情報（ファイルパスを返す）
    */
   async generateThumbnail(options) {
     const { 
@@ -374,13 +416,10 @@ class FFmpegService {
       throw new Error('入力ファイルパスが指定されていません');
     }
     
-    // 出力パスを生成
-    const outputDir = path.join(require('os').tmpdir(), 'swp1-thumbnails');
-    if (!fs.existsSync(outputDir)) {
-      fs.mkdirSync(outputDir, { recursive: true });
-    }
+    // サムネイル用ディレクトリを取得
+    const thumbnailDir = this.getWorkDir('thumbnails');
     
-    const outputPath = path.join(outputDir, `thumbnail_${Date.now()}.jpg`);
+    const outputPath = path.join(thumbnailDir, `thumbnail_${Date.now()}.jpg`);
     
     // FFmpegのパスを取得
     const ffmpegPath = this._getFFmpegPath();
@@ -451,16 +490,12 @@ class FFmpegService {
           return;
         }
         
-        // 画像をBase64エンコード
-        const imageBuffer = fs.readFileSync(outputPath);
-        const base64Image = `data:image/jpeg;base64,${imageBuffer.toString('base64')}`;
-        
-        // 結果オブジェクト
+        // 以前のBase64エンコードは行わず、ファイルパスのみを返す
+        // バイナリーデータはファイルベースでやり取りするポリシーに基づく
         const result = {
           filePath: outputPath,
           timePosition: timePosition,
-          size: size,
-          base64: base64Image
+          size: size
         };
         
         resolve(result);

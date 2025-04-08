@@ -19,10 +19,20 @@ interface Window {
     // メディア解析関連
     checkFFmpeg: () => Promise<any>;
     getMediaInfo: (filePath: string) => Promise<any>;
-    generateWaveform: (filePath: string) => Promise<{ taskId: string }>;
-    generateThumbnail: (pathOrOptions: any, fileId?: string) => Promise<any>;
+    generateWaveform: (filePath: string, outputPath?: string) => Promise<{
+      success: boolean;
+      taskId?: string;
+      error?: string;
+    }>;
+    generateThumbnail: (pathOrOptions: string | { filePath: string; fileId?: string }, fileId?: string) => Promise<any>;
     exportCombinedVideo: (options: any) => Promise<any>;
-    measureLoudness: (filePath: string) => Promise<any>;
+    measureLoudness: (
+      pathOrOptions: string | { 
+        filePath: string; 
+        fileId?: string 
+      },
+      fileId?: string
+    ) => Promise<any>;
     
     // タスク関連
     getFFmpegTaskStatus: (taskId: string) => Promise<any>;

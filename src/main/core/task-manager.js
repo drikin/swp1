@@ -570,18 +570,28 @@ class TaskManager {
   emitTasksUpdated() {
     const tasks = this.getTasks();
     
+    // タスクデータをシリアライズ可能な形式に変換
+    const serializedTasks = tasks.map(t => t.toJSON());
+    
+    // タスク概要データを作成
+    const taskSummary = {
+      tasks: serializedTasks,
+      activeTaskCount: tasks.filter(t => 
+        t.status === 'pending' || t.status === 'processing' || t.status === 'retry_pending'
+      ).length
+    };
+    
     // メインウィンドウにイベント送信
     if (this.mainWindow && !this.mainWindow.isDestroyed()) {
-      this.mainWindow.webContents.send('tasks-updated', {
-        tasks: tasks.map(t => t.toJSON()),
-        activeTaskCount: tasks.filter(t => 
-          t.status === 'pending' || t.status === 'processing' || t.status === 'retry_pending'
-        ).length
-      });
+      try {
+        this.mainWindow.webContents.send('tasks-updated', taskSummary);
+      } catch (error) {
+        console.error('タスク更新イベント送信エラー:', error);
+      }
     }
     
-    // イベントエミッターでも発行
-    this.eventEmitter.emit('tasks-updated', tasks);
+    // イベントエミッターでも発行（シリアライズ済みデータを使用）
+    this.eventEmitter.emit('tasks-updated', taskSummary);
     
     return this;
   }
