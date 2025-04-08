@@ -208,6 +208,77 @@ function registerTaskAPI(ipcMain, taskManager) {
     }
   });
 
+  // ラウドネス測定（既存API互換）
+  ipcMain.handle('measure-loudness', async (event, params) => {
+    try {
+      // params が文字列の場合は従来の形式（ファイルパスのみ）として扱う
+      let mediaPath, fileId, options = {};
+      
+      if (typeof params === 'string') {
+        mediaPath = params;
+      } else if (typeof params === 'object' && params !== null) {
+        // 新しい形式: { filePath: string, fileId: string, ... }
+        mediaPath = params.filePath;
+        fileId = params.fileId;
+        options = params;
+      } else {
+        return { success: false, error: '無効なパラメータ形式です' };
+      }
+      
+      if (!mediaPath) {
+        return { success: false, error: 'メディアパスが指定されていません' };
+      }
+      
+      console.log('ラウドネス測定リクエスト:', { mediaPath, fileId, options });
+      
+      // 既存のラウドネスタスクを探す
+      const tasks = taskManager.getTasksByMedia(mediaPath, 'loudness');
+      const existingTask = tasks.find(t => t.status === 'completed');
+      
+      // 完了済みタスクがあればそのファイルパスを返す
+      if (existingTask && existingTask.status === 'completed' && existingTask.data && existingTask.data.filePath) {
+        console.log('既存のラウドネス測定結果を返します:', existingTask.data.filePath);
+        return existingTask.data;
+      }
+      
+      // 進行中のタスクがあれば待機するよう伝える
+      const pendingTask = tasks.find(t => 
+        (t.status === 'processing' || t.status === 'pending')
+      );
+      
+      if (pendingTask) {
+        console.log('進行中のラウドネス測定タスクを返します:', pendingTask.id);
+        return { 
+          taskId: pendingTask.id,
+          status: pendingTask.status,
+          pending: true
+        };
+      }
+      
+      // 新しいタスクを作成
+      const taskId = taskManager.createTask({
+        type: 'loudness',
+        mediaPath,
+        fileId, // メディアIDを追加
+      });
+      
+      console.log('新しいラウドネス測定タスクを作成:', taskId);
+      
+      // タスクIDを返す（ペンディング状態を明示）
+      return { 
+        taskId,
+        status: 'pending',
+        pending: true 
+      };
+    } catch (error) {
+      console.error('ラウドネス測定エラー:', error);
+      return { 
+        success: false, 
+        error: error.message 
+      };
+    }
+  });
+
   // タスクキャンセル
   ipcMain.handle('cancel-task', async (event, taskId) => {
     try {
@@ -523,88 +594,6 @@ function registerTaskAPI(ipcMain, taskManager) {
     }
   });
 
-  // ラウドネス測定（既存API互換）
-  ipcMain.handle('measure-loudness', async (event, mediaPath) => {
-    try {
-      if (!mediaPath) {
-        return { success: false, error: 'メディアパスが指定されていません' };
-      }
-      
-      // 既存のラウドネスタスクを探す
-      const tasks = taskManager.getTasksByMedia(mediaPath, 'loudness');
-      const existingTask = tasks.find(t => 
-        t.status === 'completed' || t.status === 'processing' || t.status === 'pending'
-      );
-      
-      if (existingTask) {
-        return { 
-          success: true, 
-          taskId: existingTask.id, 
-          status: existingTask.status 
-        };
-      }
-      
-      // 新しいタスクを作成
-      const taskId = taskManager.createTask({
-        type: 'loudness',
-        mediaPath
-      });
-      
-      return { 
-        success: true, 
-        taskId, 
-        status: 'pending' 
-      };
-    } catch (error) {
-      console.error('ラウドネス測定エラー:', error);
-      return { 
-        success: false, 
-        error: error.message 
-      };
-    }
-  });
-
-  // 波形生成（既存API互換）
-  ipcMain.handle('generate-waveform', async (event, mediaPath) => {
-    try {
-      if (!mediaPath) {
-        return { success: false, error: 'メディアパスが指定されていません' };
-      }
-      
-      // 既存の波形タスクを探す
-      const tasks = taskManager.getTasksByMedia(mediaPath, 'waveform');
-      const existingTask = tasks.find(t => 
-        t.status === 'completed' || t.status === 'processing' || t.status === 'pending'
-      );
-      
-      if (existingTask) {
-        return { 
-          success: true, 
-          taskId: existingTask.id, 
-          status: existingTask.status 
-        };
-      }
-      
-      // 新しいタスクを作成
-      const taskId = taskManager.createTask({
-        type: 'waveform',
-        mediaPath
-      });
-      
-      return { 
-        success: true, 
-        taskId, 
-        status: 'pending' 
-      };
-    } catch (error) {
-      console.error('波形生成エラー:', error);
-      return { 
-        success: false, 
-        error: error.message 
-      };
-    }
-  });
-
   // サムネイル生成（既存API互換）
   ipcMain.handle('generate-thumbnail', async (event, params) => {
     try {
@@ -637,7 +626,7 @@ function registerTaskAPI(ipcMain, taskManager) {
         t.timePosition === timePosition
       );
       
-      // 完了済みタスクがあればそのファイルパスを返す
+      // 完了済タスクがあればそのファイルパスを返す
       if (existingTask && existingTask.status === 'completed' && existingTask.data && existingTask.data.filePath) {
         console.log('既存のサムネイルを返します:', existingTask.data.filePath);
         return existingTask.data.filePath;

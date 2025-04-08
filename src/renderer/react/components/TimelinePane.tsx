@@ -267,22 +267,39 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
         });
       }
 
-      // ラウドネス測定リクエスト（メディアIDとパスを引数に渡す）
-      const result = await window.api.measureLoudness(media.path);
+      // 改善：ラウドネス測定リクエスト（メディアIDとパスを明示的に指定）
+      const result = await window.api.measureLoudness({
+        filePath: media.path,
+        fileId: media.id
+      });
+      
       console.log('ラウドネス測定結果：', result);
       
-      if (result && !result.error) {
-        // 成功時：メディア情報を更新
-        if (onUpdateMedia) {
-          const lufsValue = parseFloat(result.integrated);
-          onUpdateMedia(media.id, { 
-            lufs: lufsValue,
-            isMeasuringLUFS: false,
-            loudnessNormalization: true // デフォルトで有効化
-          });
+      if (result) {
+        // 新しい結果形式の処理
+        if (result.integrated_loudness !== undefined) {
+          // 成功時：メディア情報を更新
+          if (onUpdateMedia) {
+            const lufsValue = parseFloat(result.integrated_loudness);
+            onUpdateMedia(media.id, { 
+              lufs: lufsValue,
+              lufsData: result, // 詳細なデータも保存
+              isMeasuringLUFS: false,
+              loudnessNormalization: true // デフォルトで有効化
+            });
+          }
+        } 
+        // エラーが返された場合
+        else if (result.error) {
+          throw new Error(result.error);
+        } 
+        // 未知の形式の場合
+        else {
+          console.warn('不明なラウドネス測定結果形式:', result);
+          throw new Error('不明なラウドネス測定結果形式');
         }
       } else {
-        throw new Error(result?.error || 'ラウドネス測定に失敗しました');
+        throw new Error('ラウドネス測定に失敗しました');
       }
     } catch (error) {
       console.error('ラウドネス測定エラー:', error);

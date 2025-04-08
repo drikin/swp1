@@ -220,9 +220,98 @@ try {
       });
     },
     exportCombinedVideo: (options) => ipcRenderer.invoke('export-combined-video', options),
-    measureLoudness: (filePath) => {
-      console.log(`ラウドネス測定リクエスト: ${filePath}`);
-      return ipcRenderer.invoke('measure-loudness', filePath);
+    measureLoudness: (filePath, fileId) => {
+      // 適切なパラメータフォーマットに変換
+      let params;
+      if (typeof filePath === 'string') {
+        // 個別のパラメータとして呼び出された場合
+        params = { 
+          filePath: filePath, 
+          fileId: fileId 
+        };
+      } else {
+        // オブジェクトとして呼び出された場合
+        params = filePath;
+      }
+      
+      console.log('ラウドネス測定リクエスト(preload):', params);
+      
+      return ipcRenderer.invoke('measure-loudness', params).then(result => {
+        console.log('ラウドネス測定結果(preload):', result);
+        
+        // 単純なオブジェクト（測定結果）の場合
+        if (result && result.integrated_loudness !== undefined) {
+          // 既にフォーマット済みの結果オブジェクト
+          console.log('ラウドネス測定結果を返します');
+          
+          // ファイルパスがあれば、file://プロトコルを追加
+          if (result.filePath && typeof result.filePath === 'string') {
+            result.fileUrl = `file://${result.filePath}`;
+          }
+          
+          return result;
+        }
+        
+        // ペンディング状態のタスクの場合
+        if (result && result.taskId && result.pending) {
+          console.log('タスク待機が必要:', result.taskId);
+          
+          // タスク完了を待機する関数
+          const waitForTaskCompletion = (taskId) => {
+            return new Promise((resolve, reject) => {
+              console.log('タスク完了を待機中:', taskId);
+              
+              // タスク結果を取得
+              const getTaskResult = () => {
+                console.log('タスク状態をチェック:', taskId);
+                return ipcRenderer.invoke('get-task-result', taskId)
+                  .then(taskResult => {
+                    console.log('タスク結果:', taskResult);
+                    
+                    if (taskResult.success) {
+                      // タスク完了、結果を返す
+                      console.log('タスク完了:', taskId, 'データ:', taskResult.data);
+                      
+                      // 結果データが適切な形式か確認
+                      if (taskResult.data && taskResult.data.integrated_loudness !== undefined) {
+                        // ファイルパスがあれば、file://プロトコルを追加
+                        if (taskResult.data.filePath && typeof taskResult.data.filePath === 'string') {
+                          taskResult.data.fileUrl = `file://${taskResult.data.filePath}`;
+                        }
+                        resolve(taskResult.data);
+                      } else {
+                        console.error('タスク結果に測定データがありません:', taskResult.data);
+                        reject(new Error('タスク結果に測定データがありません'));
+                      }
+                    } else if (taskResult.status === 'error') {
+                      // タスクエラー
+                      reject(new Error(`タスクエラー: ${taskResult.error || '不明なエラー'}`));
+                    } else {
+                      // まだ完了していない
+                      console.log('タスクはまだ完了していません。再試行します...');
+                      // 1秒後に再試行
+                      setTimeout(getTaskResult, 1000);
+                    }
+                  })
+                  .catch(error => {
+                    console.error('タスク結果取得エラー:', error);
+                    reject(error);
+                  });
+              };
+              
+              // 初回チェック
+              getTaskResult();
+            });
+          };
+          
+          // タスク完了を待機して結果を返す
+          return waitForTaskCompletion(result.taskId);
+        }
+        
+        // その他のケース（エラーなど）
+        console.warn('不明な結果形式:', result);
+        return result;
+      });
     },
     
     // 新しいFFmpegタスク管理関数
