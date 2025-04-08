@@ -17,31 +17,7 @@ body {
   height: 100vh;
   width: 100%;
   position: relative;
-}
-
-/* タスク管理エリア */
-.task-management-area {
-  display: flex;
-  flex-direction: column;
-  width: 100%;
-  z-index: 10;
-}
-
-/* ドラッグ&ドロップ領域 */
-.app-container.dragover::after {
-  content: "ファイルをドロップしてください";
-  position: absolute;
-  top: 0;
-  left: 0;
-  right: 0;
-  bottom: 0;
-  background-color: rgba(0, 0, 0, 0.7);
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  font-size: 1.2rem;
-  color: #fff;
-  z-index: 1000;
+  overflow: hidden; /* オーバーフローを防止 */
 }
 
 /* ヘッダースタイル */
@@ -86,6 +62,47 @@ body {
   background-color: #ff0048;
 }
 
+/* メインコンテンツラッパー */
+.main-content-wrapper {
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+  overflow: hidden;
+  position: relative;
+  background-color: #1e1e1e; /* アプリ全体の背景色に合わせる */
+}
+
+/* タスク管理エリア */
+.task-management-area {
+  display: flex;
+  flex-direction: column;
+  width: 100%;
+  z-index: 100; /* より高いz-indexで確実に上に表示 */
+  position: relative;
+  background-color: #252525;
+  border-top: 1px solid #333;
+  flex-shrink: 0;
+  bottom: 0;
+  min-height: 30px; /* 最小の高さを設定 */
+}
+
+/* ドラッグ&ドロップ領域 */
+.app-container.dragover::after {
+  content: "ファイルをドロップしてください";
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  background-color: rgba(0, 0, 0, 0.7);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 1.2rem;
+  color: #fff;
+  z-index: 1000;
+}
+
 /* コンテンツエリア */
 .app-content {
   flex: 1;
@@ -93,6 +110,9 @@ body {
   flex-direction: column;
   overflow: hidden;
   min-height: 0; /* フレックスボックス内での収縮を許可 */
+  margin-bottom: 0; /* 余分なマージンを削除 */
+  max-height: calc(100% - 1px); /* ぎりぎりの高さに調整 */
+  background-color: #1e1e1e; /* 黒いバーを防止するための背景色設定 */
 }
 
 /* パネル共通スタイル */
@@ -102,7 +122,7 @@ body {
   margin: 0.3rem;
   border: 1px solid #333;
   overflow: hidden;
-  height: 100%;
+  height: calc(100% - 0.6rem); /* マージンを考慮した高さに調整 */
   display: flex;
   flex-direction: column;
 }

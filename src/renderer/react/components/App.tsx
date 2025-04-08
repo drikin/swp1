@@ -750,73 +750,76 @@ const App: React.FC = () => {
           onToggleExport={toggleExportSettings}
         />
         
-        {/* メインコンテンツ */}
-        <div className="app-content">
-          {showExportSettings ? (
-            <ExportSettings onClose={() => setShowExportSettings(false)} mediaFiles={mediaFiles} />
-          ) : (
-            <PanelGroup direction="horizontal" style={{ height: '100%' }}>
-              {/* 左パネル: タイムライン */}
-              <Panel defaultSize={25} minSize={15}>
-                <TimelinePane
-                  mediaFiles={mediaFiles}
-                  selectedMedia={selectedMedia}
-                  onSelectMedia={handleSelectMedia}
-                  onAddFiles={handleAddFiles}
-                  onDropFiles={handleDropFiles}
-                  onReorderMedia={handleReorderMedia}
-                  onDeleteMedias={handleDeleteMedias}
-                  onUpdateMedia={handleUpdateMedia}
-                />
-              </Panel>
-              
-              {renderResizeHandle()}
-              
-              {/* 右パネル: プレーヤーとトリミングペイン */}
-              <Panel defaultSize={75}>
-                <PanelGroup direction="vertical">
-                  {/* 上部: ビデオプレーヤー */}
-                  <Panel defaultSize={70} minSize={50}>
-                    <VideoPlayer
-                      ref={videoPlayerRef}
-                      media={selectedMedia}
-                      onTimeUpdate={setCurrentTime}
-                    />
-                  </Panel>
-                  
-                  {renderResizeHandle({ className: "horizontal" })}
-                  
-                  {/* 下部: トリミングペイン */}
-                  <Panel defaultSize={30} minSize={20}>
-                    <TrimPane 
-                      selectedMedia={selectedMedia}
-                      currentTime={currentTime}
-                      onUpdateTrimPoints={handleUpdateTrimPoints}
-                      onSeek={handleSeek}
-                    />
-                  </Panel>
-                </PanelGroup>
-              </Panel>
-            </PanelGroup>
-          )}
-        </div>
-        
-        {/* タスク管理エリア: タスク詳細パネルとフッタータスクバー */}
-        <div className="task-management-area">
-          {/* タスク詳細パネル */}
-          <TaskDetailsPanel
-            open={showTaskDetails}
-            onClose={() => setShowTaskDetails(false)}
-          />
+        {/* メインコンテンツとタスク管理のラッパー */}
+        <div className="main-content-wrapper">
+          {/* メインコンテンツ */}
+          <div className="app-content">
+            {showExportSettings ? (
+              <ExportSettings onClose={() => setShowExportSettings(false)} mediaFiles={mediaFiles} />
+            ) : (
+              <PanelGroup direction="horizontal" style={{ height: '100%', overflow: 'hidden' }}>
+                {/* 左パネル: タイムライン */}
+                <Panel defaultSize={25} minSize={15}>
+                  <TimelinePane
+                    mediaFiles={mediaFiles}
+                    selectedMedia={selectedMedia}
+                    onSelectMedia={handleSelectMedia}
+                    onAddFiles={handleAddFiles}
+                    onDropFiles={handleDropFiles}
+                    onReorderMedia={handleReorderMedia}
+                    onDeleteMedias={handleDeleteMedias}
+                    onUpdateMedia={handleUpdateMedia}
+                  />
+                </Panel>
+                
+                {renderResizeHandle()}
+                
+                {/* 右パネル: プレーヤーとトリミングペイン */}
+                <Panel defaultSize={75}>
+                  <PanelGroup direction="vertical" style={{ height: '100%', overflow: 'hidden' }}>
+                    {/* 上部: ビデオプレーヤー */}
+                    <Panel defaultSize={70} minSize={50}>
+                      <VideoPlayer
+                        ref={videoPlayerRef}
+                        media={selectedMedia}
+                        onTimeUpdate={setCurrentTime}
+                      />
+                    </Panel>
+                    
+                    {renderResizeHandle({ className: "horizontal" })}
+                    
+                    {/* 下部: トリミングペイン */}
+                    <Panel defaultSize={30} minSize={20}>
+                      <TrimPane 
+                        selectedMedia={selectedMedia}
+                        currentTime={currentTime}
+                        onUpdateTrimPoints={handleUpdateTrimPoints}
+                        onSeek={handleSeek}
+                      />
+                    </Panel>
+                  </PanelGroup>
+                </Panel>
+              </PanelGroup>
+            )}
+          </div>
           
-          {/* フッタータスクバー（旧ステータスバーの代わり） */}
-          <FooterTaskBar
-            ffmpegVersion={ffmpegVersion}
-            onShowTaskDetails={toggleTaskDetails}
-            status={status}
-            totalDuration={totalDuration}
-            isTaskDetailsOpen={showTaskDetails}
-          />
+          {/* タスク管理エリア: タスク詳細パネルとフッタータスクバー */}
+          <div className="task-management-area">
+            {/* タスク詳細パネル */}
+            <TaskDetailsPanel
+              open={showTaskDetails}
+              onClose={() => setShowTaskDetails(false)}
+            />
+            
+            {/* フッタータスクバー（旧ステータスバーの代わり） */}
+            <FooterTaskBar
+              ffmpegVersion={ffmpegVersion}
+              onShowTaskDetails={toggleTaskDetails}
+              status={status}
+              totalDuration={totalDuration}
+              isTaskDetailsOpen={showTaskDetails}
+            />
+          </div>
         </div>
       </div>
     </TaskProvider>

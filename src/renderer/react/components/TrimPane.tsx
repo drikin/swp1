@@ -716,9 +716,14 @@ const TrimPane: React.FC<TrimPaneProps> = ({
           position: 'relative', 
           backgroundColor: '#1e1e1e', 
           minHeight: '120px',
+          maxHeight: 'calc(100% - 50px)', // ボタン部分の高さを差し引いた最大高さ
           border: '1px solid #444',
           borderRadius: '4px',
-          overflow: 'hidden'
+          overflow: 'hidden',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          mb: 1 // 下部にマージンを追加
         }}
       >
         {isLoadingWaveform && (
