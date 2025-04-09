@@ -11,7 +11,15 @@ module.exports = {
     filename: 'bundle.js'
   },
   resolve: {
-    extensions: ['.tsx', '.ts', '.js', '.jsx']
+    extensions: ['.tsx', '.ts', '.js', '.jsx'],
+    fallback: {
+      crypto: false,
+      fs: false,
+      path: false,
+      util: false,
+      buffer: false,
+      stream: false
+    }
   },
   module: {
     rules: [
@@ -56,4 +64,4 @@ module.exports = {
       ]
     })
   ]
-}; 
+};

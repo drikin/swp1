@@ -643,10 +643,12 @@ async function checkVideoToolboxSupport() {
   try {
     // 複数の方法を組み合わせて検出
     let hasVideoToolbox = false;
+    let hwaccelsResult = null;
+    let encodersResult = null;
     
     // 方法1: hwaccelsコマンドでの検出
     try {
-      const hwaccelsResult = await runFFmpegCommand(['-hwaccels']);
+      hwaccelsResult = await runFFmpegCommand(['-hwaccels']);
       console.log('FFmpeg利用可能ハードウェアアクセラレーション:', hwaccelsResult.stdout);
       if (hwaccelsResult.stdout.includes('videotoolbox')) {
         hasVideoToolbox = true;
@@ -659,7 +661,7 @@ async function checkVideoToolboxSupport() {
     // 方法2: encodersの詳細出力での検出
     if (!hasVideoToolbox) {
       try {
-        const encodersResult = await runFFmpegCommand(['-encoders']);
+        encodersResult = await runFFmpegCommand(['-encoders']);
         console.log('FFmpegエンコーダー出力（一部）:', encodersResult.stdout.slice(0, 200) + '...');
         if (encodersResult.stdout.includes('videotoolbox')) {
           hasVideoToolbox = true;

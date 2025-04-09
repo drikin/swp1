@@ -331,7 +331,19 @@ try {
     getTaskResult: (taskId) => ipcRenderer.invoke('get-task-result', taskId),
     findTasksByMedia: (mediaPath) => ipcRenderer.invoke('find-tasks-by-media', mediaPath),
     getTaskTypes: () => ipcRenderer.invoke('get-task-types'),
-    cleanTasksHistory: () => ipcRenderer.invoke('clean-tasks-history')
+    cleanTasksHistory: () => ipcRenderer.invoke('clean-tasks-history'),
+    
+    // タスク更新イベントリスナー関連メソッド
+    onTasksUpdated: (callback) => {
+      console.log('イベントリスナー登録: tasks-updated');
+      ipcRenderer.on('tasks-updated', (event, data) => {
+        callback(data);
+      });
+    },
+    removeTasksUpdatedListener: (callback) => {
+      console.log('イベントリスナー解除: tasks-updated');
+      ipcRenderer.removeListener('tasks-updated', callback);
+    }
   });
   
   console.log('API successfully exposed to renderer via contextBridge');
@@ -345,6 +357,18 @@ contextBridge.exposeInMainWorld('versions', {
   chrome: () => process.versions.chrome,
   electron: () => process.versions.electron
 }); 
+
+// 暗号化機能をレンダラープロセスに安全に公開
+contextBridge.exposeInMainWorld('nodeCrypto', {
+  // UUIDの生成（crypto依存なし）
+  generateUUID: () => {
+    return 'xxxxxxxx-xxxx-4xxx-yxxx-xxxxxxxxxxxx'.replace(/[xy]/g, function(c) {
+      const r = Math.random() * 16 | 0;
+      const v = c === 'x' ? r : (r & 0x3 | 0x8);
+      return v.toString(16);
+    });
+  }
+});
 
 // タスク管理APIをレンダラープロセスに公開
 contextBridge.exposeInMainWorld('taskManager', {

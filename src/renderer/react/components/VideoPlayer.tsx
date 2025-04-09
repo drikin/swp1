@@ -13,6 +13,10 @@ export interface VideoPlayerRef {
   stopPlayback: () => void;
   changePlaybackRate: (rate: number) => void;
   seekToTime: (time: number) => void;
+  seekRelative: (seconds: number) => void;
+  changeVolume: (delta: number) => void;
+  toggleMute: () => void;
+  getCurrentTime: () => number;
   isPlaying: boolean;
   playbackRate: number;
 }
@@ -28,6 +32,7 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
   const [isReversePlayback, setIsReversePlayback] = useState(false);
+  const [isMuted, setIsMuted] = useState(false);
   const reverseIntervalRef = useRef<number | null>(null);
 
   // メディアが変更されたときにビデオソースを更新
@@ -201,12 +206,51 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
     onTimeUpdate?.(clampedTime);
   };
 
+  // 現在の再生時間から相対的に移動
+  const seekRelative = (seconds: number) => {
+    const videoElement = videoRef.current;
+    if (!videoElement) return;
+
+    const newTime = videoElement.currentTime + seconds;
+    seekToTime(newTime);
+  };
+
+  // 音量を変更（増減）
+  const changeVolume = (delta: number) => {
+    const videoElement = videoRef.current;
+    if (!videoElement) return;
+
+    const newVolume = Math.max(0, Math.min(1, videoElement.volume + delta));
+    videoElement.volume = newVolume;
+  };
+
+  // ミュート切り替え
+  const toggleMute = () => {
+    const videoElement = videoRef.current;
+    if (!videoElement) return;
+
+    videoElement.muted = !videoElement.muted;
+    setIsMuted(videoElement.muted);
+  };
+
+  // 現在の再生時間を取得
+  const getCurrentTime = () => {
+    const videoElement = videoRef.current;
+    if (!videoElement) return 0;
+    
+    return videoElement.currentTime;
+  };
+
   // コンポーネントの外部から制御できるようにメソッドを公開
   React.useImperativeHandle(ref, () => ({
     togglePlayback,
     stopPlayback,
     changePlaybackRate,
     seekToTime,
+    seekRelative,
+    changeVolume,
+    toggleMute,
+    getCurrentTime,
     isPlaying,
     playbackRate
   }));
@@ -258,4 +302,4 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
   );
 });
 
-export default VideoPlayer; 
+export default VideoPlayer;

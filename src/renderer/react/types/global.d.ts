@@ -8,6 +8,48 @@ interface TaskManagerAPI {
   onTasksUpdated: (callback: (data: any) => void) => () => void;
 }
 
+// タスクの状態型定義
+type TaskStatus = 'pending' | 'processing' | 'completed' | 'failed' | 'error' | 'cancelled';
+
+// タスクの型定義
+interface Task {
+  id: string;
+  type: string;
+  status: TaskStatus;
+  progress: number;
+  error?: string | null;
+  createdAt: string;
+  completedAt?: string | null;
+  data?: any;
+}
+
+// タスク結果の型定義
+interface TaskResult {
+  taskId: string;
+  status: TaskStatus;
+  progress: number;
+  data?: any;
+  error?: string;
+}
+
+// 波形データレスポンスの型定義
+interface WaveformDataResponse {
+  success?: boolean;
+  data?: {
+    waveform?: number[];
+  } | number[];
+  waveform?: number[];
+  taskId?: string;
+}
+
+// サムネイル生成パラメータの型定義
+interface ThumbnailGenerateParams {
+  path: string;
+  timePosition?: number;
+  width?: number;
+  height?: number;
+}
+
 interface Window {
   // 既存のAPI
   api: {
@@ -24,7 +66,11 @@ interface Window {
       taskId?: string;
       error?: string;
     }>;
-    generateThumbnail: (pathOrOptions: string | { filePath: string; fileId?: string }, fileId?: string) => Promise<any>;
+    generateThumbnail: (pathOrOptions: string | ThumbnailGenerateParams | { filePath: string; fileId?: string }, fileId?: string) => Promise<{
+      success: boolean;
+      taskId?: string;
+      error?: string;
+    }>;
     exportCombinedVideo: (options: any) => Promise<any>;
     measureLoudness: (
       pathOrOptions: string | { 
@@ -39,17 +85,24 @@ interface Window {
     cancelFFmpegTask: (taskId: string) => Promise<any>;
     getTaskStatus: (taskId: string) => Promise<{
       id: string;
-      status: 'pending' | 'processing' | 'completed' | 'error' | 'cancelled';
+      status: TaskStatus;
       progress: number;
       type: string;
-      // その他のプロパティ
+      error?: string;
     }>;
-    getTaskIdByMediaPath: (mediaPath: string, taskType: string) => Promise<string | null>;
-    getWaveformData: (taskId: string) => Promise<{
-      data: number[];
-      taskId: string;
-      // その他のプロパティ
-    } | null>;
+    getTaskResult: (taskId: string) => Promise<TaskResult | null>;
+    getTaskList: () => Promise<{ tasks: Task[] }>;
+    cancelTask: (taskId: string) => Promise<{ success: boolean; error?: string }>;
+    getTaskIdByMediaPath: (mediaPath: string, taskType: string) => Promise<{
+      success: boolean;
+      taskId?: string;
+      error?: string;
+    }>;
+    getWaveformData: (taskId: string) => Promise<WaveformDataResponse | null>;
+    
+    // イベント関連
+    onTasksUpdated: (callback: (data: { tasks: Task[] }) => void) => void;
+    removeTasksUpdatedListener: (callback: (data: { tasks: Task[] }) => void) => void;
     
     // ファイル関連
     openFileDialog: (options?: any) => Promise<string[]>;
