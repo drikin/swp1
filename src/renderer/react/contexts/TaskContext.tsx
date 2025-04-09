@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
 import { Task, TaskStatus, TaskResult, TaskContextValue } from '../types/tasks';
+import Logger from '../utils/logger';
 
 /**
  * タスク管理コンテキストのデフォルト値
@@ -37,7 +38,7 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
    */
   const fetchTasks = useCallback(async () => {
     if (!window.api || !window.api.getTaskList) {
-      setError('タスク一覧取得APIが利用できません');
+      Logger.error('TaskContext', 'タスク一覧取得APIが利用できません');
       return [];
     }
 
@@ -68,15 +69,18 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
         
         setTasks(typedTasks);
         setIsLoading(false);
+        Logger.debug('TaskContext', 'タスク一覧を取得しました', {
+          count: typedTasks.length
+        });
         return typedTasks;
       } else {
-        console.error('タスク一覧の取得に失敗:', response);
+        Logger.error('TaskContext', 'タスク一覧の取得に失敗しました');
         setError('タスク一覧の取得に失敗しました');
         setIsLoading(false);
         return [];
       }
     } catch (error) {
-      console.error('タスク一覧取得エラー:', error);
+      Logger.error('TaskContext', 'タスク一覧取得エラー:', error);
       setError('タスク一覧の取得中にエラーが発生しました');
       setIsLoading(false);
       return [];
@@ -88,7 +92,7 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
    */
   const fetchTaskStatus = useCallback(async (taskId: string) => {
     if (!window.api || !window.api.getTaskStatus) {
-      setError('タスクステータス取得APIが利用できません');
+      Logger.error('TaskContext', 'タスクステータス取得APIが利用できません');
       return null;
     }
 
@@ -104,7 +108,7 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       return null;
     } catch (error) {
-      console.error(`タスクステータス取得エラー (ID: ${taskId}):`, error);
+      Logger.error('TaskContext', `タスクステータス取得エラー (ID: ${taskId}):`, error);
       return null;
     }
   }, []);
@@ -114,7 +118,7 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
    */
   const getTaskResult = useCallback(async (taskId: string): Promise<TaskResult | null> => {
     if (!window.api || !window.api.getTaskResult) {
-      setError('タスク結果取得APIが利用できません');
+      Logger.error('TaskContext', 'タスク結果取得APIが利用できません');
       return null;
     }
 
@@ -129,7 +133,7 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
       }
       return result;
     } catch (error) {
-      console.error(`タスク結果取得エラー (ID: ${taskId}):`, error);
+      Logger.error('TaskContext', `タスク結果取得エラー (ID: ${taskId}):`, error);
       setError('タスク結果の取得中にエラーが発生しました');
       return null;
     }
@@ -140,7 +144,7 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
    */
   const cancelTask = useCallback(async (taskId: string): Promise<boolean> => {
     if (!window.api || !window.api.cancelTask) {
-      setError('タスクキャンセルAPIが利用できません');
+      Logger.error('TaskContext', 'タスクキャンセルAPIが利用できません');
       return false;
     }
 
@@ -148,7 +152,7 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const result = await window.api.cancelTask(taskId);
       
       if (result && result.success) {
-        console.log(`タスクキャンセル成功 (ID: ${taskId})`);
+        Logger.info('TaskContext', 'タスクキャンセル成功', { taskId });
         // タスクステータスマップを更新
         setTaskStatus(prev => ({
           ...prev,
@@ -159,76 +163,130 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
         fetchTasks();
         return true;
       } else {
-        console.error('タスクのキャンセルに失敗:', result);
+        Logger.error('TaskContext', 'タスクキャンセル失敗', {
+          taskId,
+          error: result?.error || '不明なエラー'
+        });
         setError('タスクのキャンセルに失敗しました');
         return false;
       }
     } catch (error) {
-      console.error(`タスクキャンセルエラー (ID: ${taskId}):`, error);
+      Logger.error('TaskContext', `タスクキャンセルエラー (ID: ${taskId}):`, error);
       setError('タスクのキャンセル中にエラーが発生しました');
       return false;
     }
   }, [fetchTasks]);
 
   /**
-   * タスクのステータス監視
+   * タスク状態の監視
+   * 指定されたタスクが完了するまで定期的にステータスをチェック
+   * コールバック形式とPromise形式の両方をサポート
    */
-  const monitorTaskStatus = useCallback((
-    taskId: string, 
-    onComplete?: (result: any) => void, 
+  const monitorTaskStatus = useCallback(async (
+    taskId: string,
+    onComplete?: (result: TaskResult | null) => void,
     onError?: (error: string) => void
   ) => {
     if (!window.api || !window.api.getTaskStatus) {
-      if (onError) onError('タスクステータス取得APIが利用できません');
-      return;
+      const errorMsg = 'タスクステータス取得APIが利用できません';
+      if (onError) onError(errorMsg);
+      return Promise.reject(new Error(errorMsg));
     }
 
     let completed = false;
     let attempts = 0;
     const maxAttempts = 100; // 最大試行回数
     const interval = 500; // ポーリング間隔（ミリ秒）
-
-    const checkStatus = async () => {
-      try {
-        const status = await window.api.getTaskStatus(taskId);
-        
-        if (status) {
-          // タスクステータスマップを更新
-          setTaskStatus(prev => ({
-            ...prev,
-            [taskId]: status.status as TaskStatus
-          }));
-          
-          if (status.status === 'completed') {
-            completed = true;
-            if (onComplete) {
-              const result = await getTaskResult(taskId);
-              onComplete(result);
+    
+    // コールバック形式とPromise形式の両方をサポート
+    if (!onComplete && !onError) {
+      // Promise形式が使用された場合
+      return new Promise<TaskResult | null>((resolve, reject) => {
+        const checkStatus = async () => {
+          try {
+            const status = await window.api.getTaskStatus(taskId);
+            
+            if (status) {
+              // タスクステータスマップを更新
+              setTaskStatus(prev => ({
+                ...prev,
+                [taskId]: status.status as TaskStatus
+              }));
+              
+              if (status.status === 'completed') {
+                completed = true;
+                const result = await getTaskResult(taskId);
+                resolve(result);
+                return;
+              } else if (status.status === 'failed' || status.status === 'error' || status.status === 'cancelled') {
+                completed = true;
+                reject(new Error(status.error || 'タスクが失敗またはキャンセルされました'));
+                return;
+              }
             }
-            return;
-          } else if (status.status === 'failed' || status.status === 'error' || status.status === 'cancelled') {
-            completed = true;
-            if (onError) onError(status.error || 'タスクが失敗またはキャンセルされました');
+
+            attempts++;
+            if (attempts >= maxAttempts) {
+              reject(new Error('タスクのモニタリングがタイムアウトしました'));
+              return;
+            }
+
+            if (!completed) {
+              setTimeout(checkStatus, interval);
+            }
+          } catch (error) {
+            Logger.error('TaskContext', `タスクステータス監視エラー (ID: ${taskId}):`, error);
+            reject(new Error('タスクステータスの監視中にエラーが発生しました'));
+          }
+        };
+
+        checkStatus();
+      });
+    } else {
+      // コールバック形式が使用された場合
+      const checkStatus = async () => {
+        try {
+          const status = await window.api.getTaskStatus(taskId);
+          
+          if (status) {
+            // タスクステータスマップを更新
+            setTaskStatus(prev => ({
+              ...prev,
+              [taskId]: status.status as TaskStatus
+            }));
+            
+            if (status.status === 'completed') {
+              completed = true;
+              if (onComplete) {
+                const result = await getTaskResult(taskId);
+                onComplete(result);
+              }
+              return;
+            } else if (status.status === 'failed' || status.status === 'error' || status.status === 'cancelled') {
+              completed = true;
+              if (onError) onError(status.error || 'タスクが失敗またはキャンセルされました');
+              return;
+            }
+          }
+
+          attempts++;
+          if (attempts >= maxAttempts) {
+            if (onError) onError('タスクのモニタリングがタイムアウトしました');
             return;
           }
-        }
 
-        attempts++;
-        if (attempts >= maxAttempts) {
-          if (onError) onError('タスクのモニタリングがタイムアウトしました');
-          return;
+          if (!completed) {
+            setTimeout(checkStatus, interval);
+          }
+        } catch (error) {
+          Logger.error('TaskContext', `タスクステータス監視エラー (ID: ${taskId}):`, error);
+          if (onError) onError('タスクステータスの監視中にエラーが発生しました');
         }
+      };
 
-        if (!completed) {
-          setTimeout(checkStatus, interval);
-        }
-      } catch (error) {
-        console.error(`タスクステータス監視エラー (ID: ${taskId}):`, error);
-        if (onError) onError('タスクステータスの監視中にエラーが発生しました');
-      }
-    };
-
-    checkStatus();
+      checkStatus();
+      return Promise.resolve(null);
+    }
   }, [getTaskResult]);
 
   /**
@@ -259,10 +317,19 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setTaskStatus(statusMap);
         
         setTasks(typedTasks);
+        Logger.debug('TaskContext', 'タスク一覧が更新されました', {
+          count: typedTasks.length
+        });
       }
     };
 
     // イベントリスナーの登録
+    if (!window.api || !window.api.onTasksUpdated) {
+      Logger.warn('TaskContext', 'タスク更新イベントリスナーを設定できません');
+      return;
+    }
+    
+    Logger.info('TaskContext', 'タスク更新イベントリスナーを設定します');
     window.api.onTasksUpdated(handleTasksUpdated);
 
     // 初回のタスク一覧取得
@@ -271,6 +338,7 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
     // クリーンアップ関数
     return () => {
       if (window.api && window.api.removeTasksUpdatedListener) {
+        Logger.info('TaskContext', 'タスク更新イベントリスナーを解除します');
         window.api.removeTasksUpdatedListener(handleTasksUpdated);
       }
     };

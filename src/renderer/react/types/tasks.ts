@@ -53,9 +53,9 @@ export interface TaskContextActions {
   cancelTask: (taskId: string) => Promise<boolean>;
   monitorTaskStatus: (
     taskId: string, 
-    onComplete?: (result: any) => void, 
+    onComplete?: (result: TaskResult | null) => void, 
     onError?: (error: string) => void
-  ) => void;
+  ) => Promise<TaskResult | null> | void;
 }
 
 // タスクコンテキストの最終型

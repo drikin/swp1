@@ -4,7 +4,7 @@ import {
   Box, IconButton, Divider 
 } from '@mui/material';
 import { ExpandMore, ExpandLess } from '@mui/icons-material';
-import { useTasks } from './TaskContext';
+import { useTasks } from '../hooks';
 import { formatDuration } from '../../utils/formatters';
 
 interface FooterTaskBarProps {

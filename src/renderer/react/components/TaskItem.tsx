@@ -8,7 +8,8 @@ import {
   Cancel, Refresh, AudioFile, Movie,
   ImageAspectRatio, Save, BarChart 
 } from '@mui/icons-material';
-import { useTasks, TaskInfo } from './TaskContext';
+import { useTasks } from '../hooks';
+import { Task as TaskInfo } from '../types/tasks';
 
 // タスク種類の日本語表示
 const taskTypeLabels: Record<string, string> = {
@@ -50,8 +51,8 @@ const TaskItem: React.FC<TaskItemProps> = ({ task }) => {
   
   // 経過時間の計算（実行中タスクは現在時刻との差）
   const getDuration = () => {
-    const start = task.startTime;
-    const end = task.endTime || Date.now();
+    const start = new Date(task.createdAt).getTime();
+    const end = task.completedAt ? new Date(task.completedAt).getTime() : Date.now();
     const durationMs = end - start;
     
     // 秒数または分:秒形式で表示
@@ -69,8 +70,8 @@ const TaskItem: React.FC<TaskItemProps> = ({ task }) => {
     e.stopPropagation(); // 親要素へのイベント伝播を防止
     try {
       const result = await cancelTask(task.id);
-      if (!result.success) {
-        console.error('タスクのキャンセルに失敗しました:', result.error);
+      if (!result) {
+        console.error('タスクのキャンセルに失敗しました');
       }
     } catch (error) {
       console.error('タスクキャンセルエラー:', error);
@@ -122,13 +123,13 @@ const TaskItem: React.FC<TaskItemProps> = ({ task }) => {
               }}
             >
               {taskTypeLabels[task.type] || task.type}
-              {task.fileName && task.fileName.trim() !== '' && (
+              {task.data && task.data.fileName && (
                 <Typography 
                   component="span" 
                   variant="caption" 
                   sx={{ ml: 1, color: 'text.secondary', fontStyle: 'italic' }}
                 >
-                  {task.fileName}
+                  {task.data.fileName}
                 </Typography>
               )}
             </Typography>
@@ -153,7 +154,7 @@ const TaskItem: React.FC<TaskItemProps> = ({ task }) => {
                 {getDuration()}
               </Typography>
               
-              {isActive && task.cancellable && (
+              {isActive && (
                 <Tooltip title="キャンセル">
                   <IconButton 
                     onClick={handleCancel} 
@@ -217,7 +218,7 @@ const TaskItem: React.FC<TaskItemProps> = ({ task }) => {
               </Paper>
             )}
             
-            {task.details && !task.error && (
+            {task.data && task.data.details && !task.error && (
               <Typography 
                 component="div"
                 variant="caption" 
@@ -229,7 +230,7 @@ const TaskItem: React.FC<TaskItemProps> = ({ task }) => {
                   wordBreak: 'break-word'
                 }}
               >
-                {task.details}
+                {task.data.details}
               </Typography>
             )}
           </Box>

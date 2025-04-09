@@ -9,8 +9,8 @@ import { ThumbnailGenerateParams, WaveformDataResponse } from './media';
 export interface ElectronAPI {
   // 基本API
   invoke: (channel: string, ...args: any[]) => Promise<any>;
-  on: (channel: string, callback: (...args: any[]) => void) => () => void;
-  off: (channel: string, callback: (...args: any[]) => void) => boolean;
+  on: (channel: string, callback: (...args: any[]) => void) => void;
+  off: (channel: string, callback: (...args: any[]) => void) => void;
   send: (channel: string, ...args: any[]) => void;
   
   // メディア解析関連
@@ -58,6 +58,20 @@ export interface ElectronAPI {
   // イベントリスナー
   onTasksUpdated: (callback: (data: { tasks: Task[] }) => void) => void;
   removeTasksUpdatedListener: (callback: (data: { tasks: Task[] }) => void) => void;
+  
+  // エクスポート進捗イベント
+  onExportProgress: (callback: (data: {
+    current: number;
+    total: number;
+    percentage: number;
+    stage: 'converting' | 'combining';
+  }) => void) => void;
+  removeExportProgressListener: (callback: (data: {
+    current: number;
+    total: number;
+    percentage: number;
+    stage: 'converting' | 'combining';
+  }) => void) => void;
   
   // ファイル関連
   openFileDialog: (options?: any) => Promise<string[]>;

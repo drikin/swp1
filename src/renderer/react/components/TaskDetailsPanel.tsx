@@ -4,7 +4,7 @@ import {
   Slide, IconButton, Tooltip
 } from '@mui/material';
 import { Close, ExpandLess } from '@mui/icons-material';
-import { useTasks } from './TaskContext';
+import { useTasks } from '../hooks';
 import TaskItem from './TaskItem';
 
 interface TaskDetailsPanelProps {

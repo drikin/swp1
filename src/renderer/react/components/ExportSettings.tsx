@@ -54,11 +54,13 @@ const ExportSettings: React.FC<ExportSettingsProps> = ({ onClose, mediaFiles = [
     };
 
     if (window.api) {
+      // 直接イベントリスナーを登録
       window.api.on('export-progress', handleExportProgress);
     }
 
     return () => {
       if (window.api) {
+        // イベントリスナーの削除
         window.api.off('export-progress', handleExportProgress);
       }
     };

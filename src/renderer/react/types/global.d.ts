@@ -1,13 +1,3 @@
-interface TaskManagerAPI {
-  getTasks: () => Promise<{
-    tasks: any[];
-    activeTaskCount: number;
-    overallProgress: number;
-  }>;
-  cancelTask: (taskId: string) => Promise<{ success: boolean; error?: string }>;
-  onTasksUpdated: (callback: (data: any) => void) => () => void;
-}
-
 // タスクの状態型定義
 type TaskStatus = 'pending' | 'processing' | 'completed' | 'failed' | 'error' | 'cancelled';
 
@@ -50,12 +40,19 @@ interface ThumbnailGenerateParams {
   height?: number;
 }
 
+// NodeCrypto API型定義
+interface NodeCryptoAPI {
+  // UUID生成関数
+  generateUUID: () => string;
+}
+
 interface Window {
   // 既存のAPI
   api: {
+    // 基本API
     invoke: (channel: string, ...args: any[]) => Promise<any>;
-    on: (channel: string, callback: (...args: any[]) => void) => () => void;
-    off: (channel: string, callback: (...args: any[]) => void) => boolean;
+    on: (channel: string, callback: (...args: any[]) => void) => void;
+    off: (channel: string, callback: (...args: any[]) => void) => void;
     send: (channel: string, ...args: any[]) => void;
     
     // メディア解析関連
@@ -66,7 +63,7 @@ interface Window {
       taskId?: string;
       error?: string;
     }>;
-    generateThumbnail: (pathOrOptions: string | ThumbnailGenerateParams | { filePath: string; fileId?: string }, fileId?: string) => Promise<{
+    generateThumbnail: (options: ThumbnailGenerateParams) => Promise<{
       success: boolean;
       taskId?: string;
       error?: string;
@@ -117,6 +114,6 @@ interface Window {
     electron: () => string;
   };
   
-  // タスク管理API
-  taskManager: TaskManagerAPI;
+  // NodeCrypto API
+  nodeCrypto: NodeCryptoAPI;
 }

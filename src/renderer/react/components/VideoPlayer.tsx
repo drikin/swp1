@@ -1,5 +1,6 @@
-import React, { useRef, useEffect, useState, forwardRef } from 'react';
+import React, { useRef, useEffect, useState, forwardRef, useCallback } from 'react';
 import { Typography } from '@mui/material';
+import Logger from '../utils/logger';
 
 interface VideoPlayerProps {
   media: any | null;
@@ -42,13 +43,13 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
 
     if (media && media.path) {
       // Electronでローカルファイルパスをソースとして設定
-      // macOSやLinuxではファイルパスの先頭に'file://'を追加する必要がある
       const filePath = media.path.startsWith('file://') 
         ? media.path 
         : `file://${media.path}`;
       
       // 現在のsrcと新しいpathが異なる場合のみ再読み込み
       if (videoElement.src !== filePath) {
+        Logger.info('VideoPlayer', 'メディアソース変更', { path: media.path });
         videoElement.src = filePath;
         videoElement.load();
       }
@@ -76,10 +77,12 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
     if (isPlaying) {
       if (isReversePlayback) {
         // 通常再生を停止し、逆再生を開始
+        Logger.debug('VideoPlayer', '逆再生開始', { rate: playbackRate });
         videoElement.pause();
         startReversePlayback();
       } else {
         // 逆再生を停止し、通常再生を開始
+        Logger.debug('VideoPlayer', '通常再生開始', { rate: playbackRate });
         stopReversePlayback();
         videoElement.play();
       }
@@ -88,10 +91,10 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
     return () => {
       stopReversePlayback();
     };
-  }, [isPlaying, isReversePlayback]);
+  }, [isPlaying, isReversePlayback, playbackRate]);
 
   // 逆再生の開始
-  const startReversePlayback = () => {
+  const startReversePlayback = useCallback(() => {
     const videoElement = videoRef.current;
     if (!videoElement) return;
 
@@ -105,6 +108,7 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
     reverseIntervalRef.current = window.setInterval(() => {
       if (videoElement.currentTime <= 0) {
         // 動画の先頭に達したら逆再生を停止
+        Logger.debug('VideoPlayer', '逆再生終了（先頭に到達）');
         stopReversePlayback();
         setIsPlaying(false);
       } else {
@@ -112,62 +116,65 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
         videoElement.currentTime = Math.max(0, videoElement.currentTime - stepSize);
       }
     }, 16) as unknown as number; // 約60fpsのレート
-  };
+  }, [playbackRate]);
 
   // 逆再生の停止
-  const stopReversePlayback = () => {
+  const stopReversePlayback = useCallback(() => {
     if (reverseIntervalRef.current !== null) {
       clearInterval(reverseIntervalRef.current);
       reverseIntervalRef.current = null;
     }
-  };
+  }, []);
 
   // 再生/一時停止のトグル
-  const togglePlayback = () => {
+  const togglePlayback = useCallback(() => {
     const videoElement = videoRef.current;
     if (!videoElement) return;
 
     if (isPlaying) {
+      Logger.debug('VideoPlayer', '再生停止');
       if (isReversePlayback) {
         stopReversePlayback();
       } else {
         videoElement.pause();
       }
-      // 再生停止時は常に再生速度を1に設定
-      videoElement.playbackRate = 1;
-      setPlaybackRate(1);
-      setIsReversePlayback(false);
+      setIsPlaying(false);
     } else {
-      if (playbackRate < 0) {
-        setIsReversePlayback(true);
+      Logger.debug('VideoPlayer', '再生開始', { reverse: isReversePlayback });
+      if (isReversePlayback) {
+        startReversePlayback();
       } else {
         videoElement.play();
       }
+      setIsPlaying(true);
     }
-    setIsPlaying(!isPlaying);
-  };
+  }, [isPlaying, isReversePlayback, startReversePlayback, stopReversePlayback]);
 
   // 再生を停止
-  const stopPlayback = () => {
+  const stopPlayback = useCallback(() => {
     const videoElement = videoRef.current;
     if (!videoElement) return;
 
+    Logger.debug('VideoPlayer', '再生停止（完全停止）');
+    
+    // 逆再生または通常再生を停止
     if (isReversePlayback) {
       stopReversePlayback();
     } else {
       videoElement.pause();
     }
-    videoElement.playbackRate = 1;
+    
+    // 再生位置を先頭に戻す
+    videoElement.currentTime = 0;
     setIsPlaying(false);
-    setPlaybackRate(1);
-    setIsReversePlayback(false);
-  };
+  }, [isReversePlayback, stopReversePlayback]);
 
   // 再生速度を変更
-  const changePlaybackRate = (rate: number) => {
+  const changePlaybackRate = useCallback((rate: number) => {
     const videoElement = videoRef.current;
     if (!videoElement) return;
 
+    Logger.debug('VideoPlayer', '再生速度変更', { rate });
     setPlaybackRate(rate);
 
     // 正の値なら通常再生速度を設定
@@ -191,10 +198,10 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
         startReversePlayback();
       }
     }
-  };
+  }, [isPlaying, startReversePlayback, stopReversePlayback]);
 
   // 再生位置を指定時間に移動
-  const seekToTime = (time: number) => {
+  const seekToTime = useCallback((time: number) => {
     const videoElement = videoRef.current;
     if (!videoElement) return;
 
@@ -202,44 +209,49 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
     const clampedTime = Math.max(0, Math.min(time, videoElement.duration || Infinity));
     videoElement.currentTime = clampedTime;
 
+    Logger.debug('VideoPlayer', 'シーク', { time: clampedTime });
+    
     // TimeUpdateイベントを手動でトリガーしてUIを即時更新
     onTimeUpdate?.(clampedTime);
-  };
+  }, [onTimeUpdate]);
 
   // 現在の再生時間から相対的に移動
-  const seekRelative = (seconds: number) => {
+  const seekRelative = useCallback((seconds: number) => {
     const videoElement = videoRef.current;
     if (!videoElement) return;
 
     const newTime = videoElement.currentTime + seconds;
+    Logger.debug('VideoPlayer', '相対シーク', { seconds, newTime });
     seekToTime(newTime);
-  };
+  }, [seekToTime]);
 
   // 音量を変更（増減）
-  const changeVolume = (delta: number) => {
+  const changeVolume = useCallback((delta: number) => {
     const videoElement = videoRef.current;
     if (!videoElement) return;
 
     const newVolume = Math.max(0, Math.min(1, videoElement.volume + delta));
     videoElement.volume = newVolume;
-  };
+    Logger.debug('VideoPlayer', '音量変更', { newVolume: Math.round(newVolume * 100) });
+  }, []);
 
   // ミュート切り替え
-  const toggleMute = () => {
+  const toggleMute = useCallback(() => {
     const videoElement = videoRef.current;
     if (!videoElement) return;
 
     videoElement.muted = !videoElement.muted;
     setIsMuted(videoElement.muted);
-  };
+    Logger.debug('VideoPlayer', 'ミュート切替', { muted: videoElement.muted });
+  }, []);
 
   // 現在の再生時間を取得
-  const getCurrentTime = () => {
+  const getCurrentTime = useCallback(() => {
     const videoElement = videoRef.current;
     if (!videoElement) return 0;
     
     return videoElement.currentTime;
-  };
+  }, []);
 
   // コンポーネントの外部から制御できるようにメソッドを公開
   React.useImperativeHandle(ref, () => ({
@@ -253,7 +265,18 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
     getCurrentTime,
     isPlaying,
     playbackRate
-  }));
+  }), [
+    togglePlayback,
+    stopPlayback,
+    changePlaybackRate,
+    seekToTime,
+    seekRelative,
+    changeVolume,
+    toggleMute,
+    getCurrentTime,
+    isPlaying,
+    playbackRate
+  ]);
 
   return (
     <div className="panel">

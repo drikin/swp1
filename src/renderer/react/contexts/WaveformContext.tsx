@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useCallback } from 'react';
 import { MediaFile, MediaFileWithTaskIds, WaveformContextState, WaveformContextActions, WaveformContextValue } from '../types/media';
+import Logger from '../utils/logger';
 
 /**
  * 波形コンテキストのデフォルト値
@@ -37,47 +38,60 @@ export const WaveformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
    */
   const extractWaveformData = useCallback((response: any): number[] | null => {
     if (!response) {
-      console.error('[波形抽出] レスポンスが空です');
+      Logger.error('WaveformContext', '波形抽出: レスポンスが空です');
       return null;
     }
 
     try {
-      console.log('[波形抽出] レスポンス:', typeof response, response);
+      Logger.debug('WaveformContext', '波形抽出: レスポンス', {
+        type: typeof response,
+        response
+      });
 
       // 1. タスクID経由で取得した場合: {data: {waveform: number[]}}
       if (response.data && Array.isArray(response.data.waveform)) {
-        console.log('[波形抽出] タスクデータから波形を抽出:', response.data.waveform.length);
+        Logger.debug('WaveformContext', '波形抽出: タスクデータから波形を抽出', {
+          length: response.data.waveform.length
+        });
         return response.data.waveform;
       }
 
       // 2. タスクID経由で取得した場合（フラット構造）: {waveform: number[]}
       if (response.waveform && Array.isArray(response.waveform)) {
-        console.log('[波形抽出] 直接レスポンスから波形を抽出:', response.waveform.length);
+        Logger.debug('WaveformContext', '波形抽出: 直接レスポンスから波形を抽出', {
+          length: response.waveform.length
+        });
         return response.waveform;
       }
 
       // 3. 直接波形データの場合: {data: number[]}
       if (response.data && Array.isArray(response.data)) {
-        console.log('[波形抽出] データ配列を抽出:', response.data.length);
+        Logger.debug('WaveformContext', '波形抽出: データ配列を抽出', {
+          length: response.data.length
+        });
         return response.data;
       }
 
       // 4. フラットな波形データの場合: number[]
       if (Array.isArray(response)) {
-        console.log('[波形抽出] 配列として波形を抽出:', response.length);
+        Logger.debug('WaveformContext', '波形抽出: 配列として波形を抽出', {
+          length: response.length
+        });
         return response;
       }
 
       // 5. ネストされたデータ構造: {data: {data: number[]}}
       if (response.data && response.data.data && Array.isArray(response.data.data)) {
-        console.log('[波形抽出] ネストされたデータから波形を抽出:', response.data.data.length);
+        Logger.debug('WaveformContext', '波形抽出: ネストされたデータから波形を抽出', {
+          length: response.data.data.length
+        });
         return response.data.data;
       }
 
-      console.error('[波形抽出] 未知のデータ構造:', response);
+      Logger.error('WaveformContext', '波形抽出: 未知のデータ構造', response);
       return null;
     } catch (error) {
-      console.error('[波形抽出] 波形データ抽出エラー:', error);
+      Logger.error('WaveformContext', '波形データ抽出エラー', error);
       return null;
     }
   }, []);
@@ -90,6 +104,7 @@ export const WaveformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const generateWaveform = useCallback(async (filePath: string): Promise<string | null> => {
     if (!window.api || !window.api.generateWaveform) {
       setError('波形生成APIが利用できません');
+      Logger.error('WaveformContext', '波形生成APIが利用できません');
       return null;
     }
 
@@ -97,24 +112,24 @@ export const WaveformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     setError(null);
 
     try {
-      console.log('[波形生成] 開始:', filePath);
+      Logger.info('WaveformContext', '波形生成開始', { filePath });
       
       // 波形生成タスクを開始
       const response = await window.api.generateWaveform(filePath);
-      console.log('[波形生成] API応答:', response);
+      Logger.debug('WaveformContext', 'API応答', response);
 
       if (response && response.success === true && response.taskId) {
-        console.log('[波形生成] タスク開始成功:', response.taskId);
+        Logger.info('WaveformContext', 'タスク開始成功', { taskId: response.taskId });
         setWaveformTaskId(response.taskId);
         return response.taskId;
       } else {
-        console.error('[波形生成] タスク開始失敗:', response);
+        Logger.error('WaveformContext', 'タスク開始失敗', response);
         setError('波形生成タスクの開始に失敗しました');
         setIsLoadingWaveform(false);
         return null;
       }
     } catch (error) {
-      console.error('[波形生成] エラー:', error);
+      Logger.error('WaveformContext', '波形生成エラー', error);
       setError('波形生成中にエラーが発生しました');
       setIsLoadingWaveform(false);
       return null;
@@ -129,12 +144,13 @@ export const WaveformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
   const fetchWaveformData = useCallback(async (taskId: string): Promise<number[] | null> => {
     if (!window.api || !window.api.getTaskResult) {
       setError('タスク結果取得APIが利用できません');
+      Logger.error('WaveformContext', 'タスク結果取得APIが利用できません');
       return null;
     }
 
     try {
       const taskResult = await window.api.getTaskResult(taskId);
-      console.log('[波形取得] タスク結果:', taskResult);
+      Logger.debug('WaveformContext', 'タスク結果', taskResult);
 
       if (taskResult && taskResult.status === 'completed') {
         const extractedData = extractWaveformData(taskResult.data);
@@ -144,12 +160,12 @@ export const WaveformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
           return extractedData;
         }
       } else if (taskResult && taskResult.status === 'failed') {
-        console.error('[波形取得] タスク失敗:', taskResult.error);
+        Logger.error('WaveformContext', 'タスク失敗', taskResult.error);
         setError(`波形生成に失敗しました: ${taskResult.error || '不明なエラー'}`);
         setIsLoadingWaveform(false);
       }
     } catch (error) {
-      console.error('[波形取得] エラー:', error);
+      Logger.error('WaveformContext', '波形データ取得エラー', error);
       setError('波形データの取得中にエラーが発生しました');
       setIsLoadingWaveform(false);
     }
@@ -163,7 +179,7 @@ export const WaveformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
    */
   const getWaveformForMedia = useCallback(async (media: MediaFileWithTaskIds): Promise<string | null> => {
     if (!media || !media.path) {
-      console.error('[波形取得] メディアパスがありません');
+      Logger.error('WaveformContext', 'メディアパスがありません');
       return null;
     }
 
@@ -173,7 +189,7 @@ export const WaveformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     try {
       // 1. 既存のタスクIDを確認
       if (media.waveformTaskId) {
-        console.log('[波形取得] 既存のタスクIDを使用:', media.waveformTaskId);
+        Logger.debug('WaveformContext', '既存のタスクIDを使用', { taskId: media.waveformTaskId });
         // 波形データを取得するが、タスクIDを返す
         await fetchWaveformData(media.waveformTaskId);
         return media.waveformTaskId;
@@ -182,10 +198,10 @@ export const WaveformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       // 2. メディアパスからタスクIDを検索
       if (window.api.getTaskIdByMediaPath) {
         const response = await window.api.getTaskIdByMediaPath(media.path, 'waveform');
-        console.log('[波形取得] パスからタスクID検索結果:', response);
+        Logger.debug('WaveformContext', 'パスからタスクID検索結果', response);
 
         if (response && response.success && response.taskId) {
-          console.log('[波形取得] 既存のタスクが見つかりました:', response.taskId);
+          Logger.debug('WaveformContext', '既存のタスクが見つかりました', { taskId: response.taskId });
           // 波形データを取得するが、タスクIDを返す
           await fetchWaveformData(response.taskId);
           return response.taskId;
@@ -193,7 +209,7 @@ export const WaveformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
 
       // 3. 新しい波形生成タスクを開始
-      console.log('[波形取得] 新しいタスクを開始します');
+      Logger.info('WaveformContext', '新しいタスクを開始します', { filePath: media.path });
       const taskId = await generateWaveform(media.path);
       if (taskId) {
         // 波形データの取得を試みるが、タスクIDを返す
@@ -201,7 +217,7 @@ export const WaveformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
         return taskId;
       }
     } catch (error) {
-      console.error('[波形取得] エラー:', error);
+      Logger.error('WaveformContext', '波形生成処理中にエラーが発生しました', error);
       setError('波形生成処理中にエラーが発生しました');
       setIsLoadingWaveform(false);
     }

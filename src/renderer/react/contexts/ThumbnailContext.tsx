@@ -1,5 +1,6 @@
 import React, { createContext, useContext, useState, useCallback } from 'react';
 import { MediaFile, MediaFileWithTaskIds, ThumbnailContextState, ThumbnailContextActions, ThumbnailContextValue, ThumbnailGenerateParams } from '../types/media';
+import Logger from '../utils/logger';
 
 /**
  * サムネイルコンテキストのデフォルト値
@@ -36,13 +37,13 @@ export const ThumbnailProvider: React.FC<{ children: React.ReactNode }> = ({ chi
    */
   const generateThumbnail = useCallback(async (params: ThumbnailGenerateParams) => {
     if (!window.api || !window.api.generateThumbnail) {
-      console.error('[サムネイル生成] API が利用できません');
+      Logger.error('ThumbnailContext', 'API が利用できません');
       setError('サムネイル生成APIが利用できません');
       return null;
     }
 
     if (!params.path) {
-      console.error('[サムネイル生成] メディアパスがありません');
+      Logger.error('ThumbnailContext', 'メディアパスがありません');
       setError('メディアファイルが指定されていません');
       return null;
     }
@@ -51,21 +52,21 @@ export const ThumbnailProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     setError(null);
 
     try {
-      console.log('[サムネイル生成] 開始:', {
+      Logger.info('ThumbnailContext', 'サムネイル生成開始', {
         path: params.path,
         position: params.timePosition
       });
 
       // サムネイル生成タスクを開始
       const response = await window.api.generateThumbnail(params);
-      console.log('[サムネイル生成] API応答:', response);
+      Logger.debug('ThumbnailContext', 'API応答', response);
 
       if (response && response.success === true && response.taskId) {
-        console.log('[サムネイル生成] タスク開始成功:', response.taskId);
+        Logger.info('ThumbnailContext', 'タスク開始成功', response.taskId);
         setThumbnailTaskId(response.taskId);
         return response.taskId;
       } else {
-        console.error('[サムネイル生成] タスク開始失敗:', response);
+        Logger.error('ThumbnailContext', 'タスク開始失敗', response);
         const errorMessage = (response && response.error) 
           ? response.error 
           : 'サムネイル生成タスクの開始に失敗しました';
@@ -73,7 +74,7 @@ export const ThumbnailProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         setIsLoadingThumbnail(false);
       }
     } catch (error) {
-      console.error('[サムネイル生成] エラー:', error);
+      Logger.error('ThumbnailContext', 'サムネイル生成中にエラーが発生しました', error);
       setError('サムネイル生成中にエラーが発生しました');
       setIsLoadingThumbnail(false);
     }
@@ -87,13 +88,14 @@ export const ThumbnailProvider: React.FC<{ children: React.ReactNode }> = ({ chi
    */
   const fetchThumbnailData = useCallback(async (taskId: string) => {
     if (!window.api || !window.api.getTaskResult) {
+      Logger.error('ThumbnailContext', 'タスク結果取得APIが利用できません');
       setError('タスク結果取得APIが利用できません');
       return null;
     }
 
     try {
       const taskResult = await window.api.getTaskResult(taskId);
-      console.log('[サムネイル取得] タスク結果:', taskResult);
+      Logger.debug('ThumbnailContext', 'タスク結果', taskResult);
 
       if (taskResult && taskResult.status === 'completed') {
         // タスク完了、サムネイルデータを返す
@@ -109,12 +111,12 @@ export const ThumbnailProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         
         return taskResult.data;
       } else if (taskResult && taskResult.status === 'failed') {
-        console.error('[サムネイル取得] タスク失敗:', taskResult.error);
+        Logger.error('ThumbnailContext', 'タスク失敗', taskResult.error);
         setError(`サムネイル生成に失敗しました: ${taskResult.error || '不明なエラー'}`);
         setIsLoadingThumbnail(false);
       }
     } catch (error) {
-      console.error('[サムネイル取得] エラー:', error);
+      Logger.error('ThumbnailContext', 'サムネイルデータの取得中にエラーが発生しました', error);
       setError('サムネイルデータの取得中にエラーが発生しました');
       setIsLoadingThumbnail(false);
     }
@@ -128,7 +130,7 @@ export const ThumbnailProvider: React.FC<{ children: React.ReactNode }> = ({ chi
    */
   const getThumbnailForMedia = useCallback(async (media: MediaFileWithTaskIds, timePosition?: number) => {
     if (!media || !media.path) {
-      console.error('[サムネイル取得] メディアパスがありません');
+      Logger.error('ThumbnailContext', 'メディアパスがありません');
       return null;
     }
 
@@ -138,23 +140,23 @@ export const ThumbnailProvider: React.FC<{ children: React.ReactNode }> = ({ chi
     try {
       // 1. 既存のタスクIDを確認
       if (media.thumbnailTaskId) {
-        console.log('[サムネイル取得] 既存のタスクIDを使用:', media.thumbnailTaskId);
+        Logger.debug('ThumbnailContext', '既存のタスクIDを使用', media.thumbnailTaskId);
         return await fetchThumbnailData(media.thumbnailTaskId);
       }
 
       // 2. メディアパスからタスクIDを検索
       if (window.api.getTaskIdByMediaPath) {
         const response = await window.api.getTaskIdByMediaPath(media.path, 'thumbnail');
-        console.log('[サムネイル取得] パスからタスクID検索結果:', response);
+        Logger.debug('ThumbnailContext', 'パスからタスクID検索結果', response);
 
         if (response && response.success && response.taskId) {
-          console.log('[サムネイル取得] 既存のタスクが見つかりました:', response.taskId);
+          Logger.debug('ThumbnailContext', '既存のタスクが見つかりました', response.taskId);
           return await fetchThumbnailData(response.taskId);
         }
       }
 
       // 3. 新しいサムネイル生成タスクを開始
-      console.log('[サムネイル取得] 新しいタスクを開始します');
+      Logger.info('ThumbnailContext', '新しいタスクを開始します');
       const params: ThumbnailGenerateParams = {
         path: media.path,
         timePosition: timePosition !== undefined ? timePosition : (media.duration ? media.duration / 2 : 0),
@@ -165,7 +167,7 @@ export const ThumbnailProvider: React.FC<{ children: React.ReactNode }> = ({ chi
         return await fetchThumbnailData(taskId);
       }
     } catch (error) {
-      console.error('[サムネイル取得] エラー:', error);
+      Logger.error('ThumbnailContext', 'サムネイル処理中にエラーが発生しました', error);
       setError('サムネイル処理中にエラーが発生しました');
       setIsLoadingThumbnail(false);
     }
