@@ -30,7 +30,7 @@ class FFmpegServiceManager extends EventEmitter {
     this.activeTaskIds = new Set(); // アクティブなタスクIDを追跡
     
     // サービス起動コマンドのパス
-    this.servicePath = path.join(__dirname, 'ffmpeg-service.js');
+    this.servicePath = path.join(__dirname, 'services', 'ffmpeg-service.js');
     
     // ログファイルパス
     this.logPath = path.join(app.getPath('userData'), 'ffmpeg-service.log');
@@ -458,9 +458,7 @@ class FFmpegServiceManager extends EventEmitter {
    */
   cancelTask(taskId) {
     // アクティブタスクリストから削除
-    if (this.activeTaskIds.has(taskId)) {
-      this.activeTaskIds.delete(taskId);
-    }
+    this._removeFromActiveTaskList(taskId);
 
     return new Promise(async (resolve, reject) => {
       try {
@@ -485,6 +483,16 @@ class FFmpegServiceManager extends EventEmitter {
   }
 
   /**
+   * アクティブタスクリストから削除する共通関数
+   * @private
+   */
+  _removeFromActiveTaskList(taskId) {
+    if (this.activeTaskIds.has(taskId)) {
+      this.activeTaskIds.delete(taskId);
+    }
+  }
+
+  /**
    * タスク進捗のポーリングを開始
    */
   _startTaskPolling(taskId) {
@@ -494,6 +502,12 @@ class FFmpegServiceManager extends EventEmitter {
     const maxPollingCount = 120; // 2分で最大120回のポーリング（1秒ごと）
     
     console.log(`タスク[${taskId}]のポーリングを開始します`);
+    
+    const handleTaskCompletion = (status) => {
+      clearInterval(interval);
+      interval = null;
+      this._removeFromActiveTaskList(taskId);
+    };
     
     interval = setInterval(async () => {
       try {
@@ -513,11 +527,7 @@ class FFmpegServiceManager extends EventEmitter {
             details: 'ポーリング回数上限を超過したため強制終了'
           });
           
-          // アクティブタスクリストから削除
-          if (this.activeTaskIds.has(taskId)) {
-            this.activeTaskIds.delete(taskId);
-          }
-          
+          this._removeFromActiveTaskList(taskId);
           return;
         }
         
@@ -535,13 +545,7 @@ class FFmpegServiceManager extends EventEmitter {
         if (status.status === 'completed') {
           console.log(`タスク[${taskId}]が完了しました。ポーリングを停止します。`);
           this.emit('task-completed', taskId, status.result || null);
-          clearInterval(interval);
-          interval = null;
-          
-          // アクティブタスクリストから削除
-          if (this.activeTaskIds.has(taskId)) {
-            this.activeTaskIds.delete(taskId);
-          }
+          handleTaskCompletion(status);
         }
         
         // エラーの場合
@@ -551,26 +555,14 @@ class FFmpegServiceManager extends EventEmitter {
             message: status.error || 'タスクの実行中にエラーが発生しました',
             details: status.details || null
           });
-          clearInterval(interval);
-          interval = null;
-          
-          // アクティブタスクリストから削除
-          if (this.activeTaskIds.has(taskId)) {
-            this.activeTaskIds.delete(taskId);
-          }
+          handleTaskCompletion(status);
         }
         
         // キャンセルの場合
         else if (status.status === 'cancelled') {
           console.log(`タスク[${taskId}]がキャンセルされました。ポーリングを停止します。`);
           this.emit('task-cancelled', taskId);
-          clearInterval(interval);
-          interval = null;
-          
-          // アクティブタスクリストから削除
-          if (this.activeTaskIds.has(taskId)) {
-            this.activeTaskIds.delete(taskId);
-          }
+          handleTaskCompletion(status);
         }
       } catch (error) {
         console.error(`タスク[${taskId}]のポーリングエラー:`, error);
@@ -591,10 +583,7 @@ class FFmpegServiceManager extends EventEmitter {
           details: '5分間の最大監視時間を超過したため強制終了しました'
         });
         
-        // アクティブタスクリストから削除
-        if (this.activeTaskIds.has(taskId)) {
-          this.activeTaskIds.delete(taskId);
-        }
+        this._removeFromActiveTaskList(taskId);
       }
     }, 5 * 60 * 1000);
   }

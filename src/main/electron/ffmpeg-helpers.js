@@ -131,15 +131,12 @@ async function checkVideoToolboxSupport() {
     let hasVideoToolbox = false;
     
     // 方法1: -hwaccelsで確認
-    const hwaccelsArgs = [
-      '-hide_banner',
-      '-loglevel', 'error',
-      '-hwaccels'
-    ];
-    
-    let hwaccelsResult = null;
     try {
-      hwaccelsResult = await runFFmpegCommand(hwaccelsArgs);
+      const hwaccelsResult = await runFFmpegCommand([
+        '-hide_banner',
+        '-loglevel', 'error',
+        '-hwaccels'
+      ]);
       const hwaccelList = hwaccelsResult.stdout.split('\n').map(line => line.trim()).filter(Boolean);
       
       if (hwaccelList.includes('videotoolbox')) {
@@ -152,15 +149,12 @@ async function checkVideoToolboxSupport() {
     
     // 方法2: エンコーダー一覧で確認（VideoToolboxが見つからない場合）
     if (!hasVideoToolbox) {
-      const encodersArgs = [
-        '-hide_banner',
-        '-loglevel', 'error',
-        '-encoders'
-      ];
-      
-      let encodersResult = null;
       try {
-        encodersResult = await runFFmpegCommand(encodersArgs);
+        const encodersResult = await runFFmpegCommand([
+          '-hide_banner',
+          '-loglevel', 'error',
+          '-encoders'
+        ]);
         const encodersList = encodersResult.stdout;
         
         if (encodersList.includes('h264_videotoolbox') || encodersList.includes('hevc_videotoolbox')) {
@@ -181,19 +175,14 @@ async function checkVideoToolboxSupport() {
     }
     
     // 結果を返す
-    const hwaccelSupport = {
+    return {
       h264: hasVideoToolbox,
       hevc: hasVideoToolbox,
       isHardwareAccelerated: hasVideoToolbox,
       supportedCodecs: hasVideoToolbox ? ['h264_videotoolbox', 'hevc_videotoolbox'] : [],
       hwaccelEngine: hasVideoToolbox ? 'videotoolbox' : null,
-      detectionMethod: hasVideoToolbox ? 
-        (hwaccelsResult?.stdout?.includes('videotoolbox') ? 'hwaccels' : 
-         (encodersResult?.stdout?.includes('videotoolbox') ? 'encoders' : 'os-detection')) : 'none'
+      detectionMethod: hasVideoToolbox ? 'composite' : 'none'
     };
-    
-    console.log('VideoToolbox対応状況（複合検出）:', hwaccelSupport);
-    return hwaccelSupport;
   } catch (error) {
     console.warn('ハードウェアエンコード対応確認エラー:', error);
     // macOSのデフォルト値

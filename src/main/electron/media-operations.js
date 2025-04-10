@@ -36,6 +36,16 @@ async function getMediaInfo(filePath) {
     const videoStream = data.streams.find(stream => stream.codec_type === 'video');
     const audioStream = data.streams.find(stream => stream.codec_type === 'audio');
     
+    // フレームレートを安全に計算（evalを使わない）
+    const calculateFrameRate = (rateStr) => {
+      if (!rateStr) return null;
+      const parts = rateStr.split('/');
+      if (parts.length !== 2) return null;
+      const num = parseInt(parts[0], 10);
+      const den = parseInt(parts[1], 10);
+      return den === 0 ? null : num / den;
+    };
+    
     // メディア情報を整形
     const mediaInfo = {
       path: filePath,
@@ -48,7 +58,7 @@ async function getMediaInfo(filePath) {
         codec: videoStream.codec_name,
         width: parseInt(videoStream.width, 10),
         height: parseInt(videoStream.height, 10),
-        frameRate: eval(videoStream.r_frame_rate), // 安全なeval
+        frameRate: calculateFrameRate(videoStream.r_frame_rate),
         bitrate: videoStream.bit_rate ? parseInt(videoStream.bit_rate, 10) : null
       } : null,
       audio: audioStream ? {
@@ -233,7 +243,7 @@ async function generateWaveform(filePath, outputPath) {
  * @returns {Array} 波形データの配列
  */
 function parseWaveformData(output) {
-  // 正規表現でRMSレベルを抽出
+  // より効率的な一回のスキャンでレベルを抽出
   const regex = /lavfi\.astats\.Overall\.RMS_level=([+-]?\d+\.?\d*)/g;
   const levels = [];
   let match;
@@ -245,6 +255,12 @@ function parseWaveformData(output) {
     // -60dB～0dBの範囲を想定
     const normalizedLevel = Math.max(0, Math.min(1, (level + 60) / 60));
     levels.push(normalizedLevel);
+  }
+  
+  // サンプル数が多すぎる場合、間引きを行う
+  if (levels.length > 1000) {
+    const factor = Math.ceil(levels.length / 1000);
+    return levels.filter((_, i) => i % factor === 0);
   }
   
   return levels;

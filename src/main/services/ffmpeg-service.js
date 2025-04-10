@@ -12,44 +12,48 @@ class FFmpegService {
   constructor() {
     this.events = new EventEmitter();
     this.processes = new Map(); // タスクIDとFFmpegプロセスのマッピング
-    this.baseWorkDir = this._initializeWorkDirectories();
+    
+    // 新しい実装に移行するための内部インスタンス
+    const { FFmpegServiceCore } = require('./ffmpeg');
+    this._coreService = new FFmpegServiceCore();
+    
+    // イベント転送を設定
+    this._forwardEvents();
+    
+    // 作業ディレクトリを初期化
+    this.baseWorkDir = this._coreService.directories.base;
   }
 
+  /**
+   * イベントの転送設定
+   * @private
+   */
+  _forwardEvents() {
+    this._coreService.on('progress', (taskId, task) => {
+      this.events.emit('progress', taskId, task);
+    });
+    
+    this._coreService.on('completed', (taskId, task) => {
+      this.events.emit('completed', taskId, task);
+    });
+    
+    this._coreService.on('error', (taskId, task) => {
+      this.events.emit('error', taskId, task);
+    });
+    
+    this._coreService.on('cancelled', (taskId, task) => {
+      this.events.emit('cancelled', taskId, task);
+    });
+  }
+  
   /**
    * 作業ディレクトリの初期化
    * @returns {string} - ベース作業ディレクトリのパス
    */
   _initializeWorkDirectories() {
-    // ホームディレクトリを取得
-    const homeDir = os.homedir();
-    
-    // ベースとなる作業ディレクトリを定義
-    const baseDir = path.join(homeDir, 'Super Watarec');
-    
-    // 必要なサブディレクトリの定義
-    const subDirs = [
-      'waveform',   // 波形データ用
-      'thumbnails', // サムネイル用
-      'temp',       // その他の一時ファイル用
-      'logs'        // ログファイル用
-    ];
-    
-    // ベースディレクトリが存在しない場合は作成
-    if (!fs.existsSync(baseDir)) {
-      fs.mkdirSync(baseDir, { recursive: true });
-      console.log(`作業ディレクトリを作成しました: ${baseDir}`);
-    }
-    
-    // 各サブディレクトリが存在しない場合は作成
-    for (const dir of subDirs) {
-      const fullPath = path.join(baseDir, dir);
-      if (!fs.existsSync(fullPath)) {
-        fs.mkdirSync(fullPath, { recursive: true });
-        console.log(`サブディレクトリを作成しました: ${fullPath}`);
-      }
-    }
-    
-    return baseDir;
+    // 既存の実装は新しいコアサービスによって処理されるため、
+    // 後方互換性のためにベースディレクトリを返すだけ
+    return this.baseWorkDir;
   }
   
   /**
@@ -58,7 +62,7 @@ class FFmpegService {
    * @returns {string} - 作業ディレクトリのパス
    */
   getWorkDir(type) {
-    return path.join(this.baseWorkDir, type);
+    return this._coreService.getWorkDir(type);
   }
 
   /**
@@ -67,11 +71,7 @@ class FFmpegService {
    * @throws {Error} - FFmpegのパスが設定されていない場合
    */
   _getFFmpegPath() {
-    const ffmpegPath = global.ffmpegPath;
-    if (!ffmpegPath) {
-      throw new Error('FFmpegのパスが設定されていません');
-    }
-    return ffmpegPath;
+    return this._coreService.utils.getFFmpegPath();
   }
 
   /**
@@ -80,16 +80,7 @@ class FFmpegService {
    * @returns {number} - 秒数
    */
   parseTimeString(timeStr) {
-    if (!timeStr) return 0;
-    
-    const match = timeStr.match(/(\d+):(\d+):(\d+\.\d+)/);
-    if (match) {
-      const hours = parseInt(match[1]);
-      const minutes = parseInt(match[2]);
-      const seconds = parseFloat(match[3]);
-      return hours * 3600 + minutes * 60 + seconds;
-    }
-    return 0;
+    return this._coreService.utils.parseTimeString(timeStr);
   }
 
   /**
@@ -98,12 +89,7 @@ class FFmpegService {
    * @returns {string} - hh:mm:ss.ms 形式の時間文字列
    */
   formatTimeString(seconds) {
-    const hours = Math.floor(seconds / 3600);
-    const minutes = Math.floor((seconds % 3600) / 60);
-    const secs = Math.floor(seconds % 60);
-    const ms = Math.floor((seconds % 1) * 1000);
-    
-    return `${String(hours).padStart(2, '0')}:${String(minutes).padStart(2, '0')}:${String(secs).padStart(2, '0')}.${String(ms).padStart(3, '0')}`;
+    return this._coreService.utils.formatTimeString(seconds);
   }
 
   /**
@@ -112,420 +98,92 @@ class FFmpegService {
    * @returns {object|null} - 進捗情報またはnull
    */
   extractProgressInfo(output) {
-    let currentTime = 0;
-    let duration = 0;
-    let progress = 0;
-    
-    // 現在時間を抽出
-    const timeMatch = output.match(/time=(\d+):(\d+):(\d+\.\d+)/);
-    if (timeMatch) {
-      const hours = parseInt(timeMatch[1]);
-      const minutes = parseInt(timeMatch[2]);
-      const seconds = parseFloat(timeMatch[3]);
-      currentTime = hours * 3600 + minutes * 60 + seconds;
-    } else {
-      return null;
-    }
-    
-    // 総時間を抽出
-    const durationMatch = output.match(/Duration: (\d+):(\d+):(\d+\.\d+)/);
-    if (durationMatch) {
-      const dHours = parseInt(durationMatch[1]);
-      const dMinutes = parseInt(durationMatch[2]);
-      const dSeconds = parseFloat(durationMatch[3]);
-      duration = dHours * 3600 + dMinutes * 60 + dSeconds;
-    }
-    
-    // 進捗率を計算
-    if (duration > 0) {
-      progress = Math.min(Math.round((currentTime / duration) * 100), 99);
-    }
-    
-    return {
-      currentTime,
-      duration,
-      progress,
-      output
-    };
+    return this._coreService.utils.extractProgressInfo(output);
   }
 
   /**
-   * 波形データの生成
-   * @param {object} options - オプション
-   * @param {string} options.inputPath - 入力ファイルパス
-   * @param {string} options.taskId - タスクID
-   * @returns {Promise<object>} - 波形データと関連情報
+   * メディアファイルの情報を取得
+   * @param {string} filePath - メディアファイルのパス
+   * @returns {Promise<Object>} - メディアファイルの情報
    */
-  async generateWaveform(options) {
-    const { inputPath, taskId } = options;
-    
-    if (!inputPath) {
-      throw new Error('入力ファイルパスが指定されていません');
-    }
-    
-    // 波形データ用ディレクトリを取得
-    const waveformDir = this.getWorkDir('waveform');
-    
-    const outputPath = path.join(waveformDir, `waveform_${Date.now()}.json`);
-    
-    // FFmpegのパスを取得
-    const ffmpegPath = this._getFFmpegPath();
-    
-    // コマンドライン引数の設定
-    const args = [
-      '-i', inputPath,
-      '-filter_complex', 'astats=metadata=1:reset=1,ametadata=print:key=lavfi.astats.Overall.RMS_level:file=-',
-      '-f', 'null', '-'
-    ];
-    
-    return new Promise((resolve, reject) => {
-      let waveformData = [];
-      let duration = 0;
-      
-      // FFmpegプロセスを作成
-      const process = spawn(ffmpegPath, args);
-      
-      // プロセスを保存
-      if (taskId) {
-        this.processes.set(taskId, process);
-      }
-      
-      // データ受信
-      process.stderr.on('data', (data) => {
-        const output = data.toString();
-        
-        // 進捗情報を抽出
-        const progressInfo = this.extractProgressInfo(output);
-        if (progressInfo) {
-          duration = progressInfo.duration;
-          this.events.emit('progress', progressInfo);
-        }
-        
-        // 波形データを抽出
-        if (output.includes('lavfi.astats.Overall.RMS_level')) {
-          const rmsMatch = output.match(/lavfi\.astats\.Overall\.RMS_level=(.+)/);
-          if (rmsMatch) {
-            const rmsLevel = parseFloat(rmsMatch[1]);
-            // RMSレベルをデシベルから0-1の範囲に変換
-            // -90dBを0、0dBを1とする（-90dBより小さい値は0に丸める）
-            const normalizedLevel = Math.max(0, Math.min(1, (rmsLevel + 90) / 90));
-            waveformData.push(normalizedLevel);
-          }
-        }
-      });
-      
-      // エラーハンドリング
-      process.on('error', (error) => {
-        if (taskId) {
-          this.processes.delete(taskId);
-        }
-        reject(error);
-      });
-      
-      // プロセス終了時の処理
-      process.on('close', (code) => {
-        if (taskId) {
-          this.processes.delete(taskId);
-        }
-        
-        if (code !== 0) {
-          reject(new Error(`FFmpegプロセスが${code}で終了しました`));
-          return;
-        }
-        
-        // 波形データの間引き（最大1000ポイント）
-        const maxPoints = 1000;
-        let finalWaveformData = waveformData;
-        
-        if (waveformData.length > maxPoints) {
-          finalWaveformData = [];
-          const step = waveformData.length / maxPoints;
-          
-          for (let i = 0; i < maxPoints; i++) {
-            const index = Math.min(Math.floor(i * step), waveformData.length - 1);
-            finalWaveformData.push(waveformData[index]);
-          }
-        }
-        
-        // 波形データを保存
-        fs.writeFileSync(outputPath, JSON.stringify({
-          waveform: finalWaveformData,
-          duration: duration
-        }), 'utf8');
-        
-        // 結果オブジェクト
-        const result = {
-          waveform: finalWaveformData,
-          duration: duration,
-          filePath: outputPath
-        };
-        
-        resolve(result);
-      });
-    });
+  async getMediaInfo(filePath) {
+    return this._coreService.getMediaInfo(filePath);
   }
 
   /**
-   * ラウドネス測定
-   * @param {object} options - オプション
-   * @param {string} options.inputPath - 入力ファイルパス
-   * @param {string} options.taskId - タスクID
-   * @returns {Promise<object>} - ラウドネスデータ
+   * サムネイルを生成
+   * @param {string} filePath - メディアファイルのパス
+   * @param {Object} options - サムネイル生成オプション
+   * @returns {Promise<Object>} - サムネイル情報
    */
-  async measureLoudness(options) {
-    const { inputPath, taskId } = options;
-    
-    if (!inputPath) {
-      throw new Error('入力ファイルパスが指定されていません');
-    }
-    
-    // 一時ファイルのパスを生成
-    const tmpDir = this.getWorkDir('temp');
-    
-    const outputPath = path.join(tmpDir, `loudness_${Date.now()}.json`);
-    
-    // FFmpegのパスを取得
-    const ffmpegPath = this._getFFmpegPath();
-    
-    // コマンドライン引数の設定
-    const args = [
-      '-hide_banner',
-      '-i', inputPath,
-      '-af', 'loudnorm=print_format=json',
-      '-f', 'null',
-      '-'
-    ];
-    
-    return new Promise((resolve, reject) => {
-      let loudnessData = '';
-      let measurementPhase = 'first_pass';
-      
-      // FFmpegプロセスを作成
-      const process = spawn(ffmpegPath, args);
-      
-      // プロセスを保存
-      if (taskId) {
-        this.processes.set(taskId, process);
-      }
-      
-      // データ受信
-      process.stderr.on('data', (data) => {
-        const output = data.toString();
-        
-        // 進捗情報を抽出
-        const progressInfo = this.extractProgressInfo(output);
-        if (progressInfo) {
-          // 進捗を2段階に分ける
-          let finalProgress;
-          if (measurementPhase === 'first_pass') {
-            finalProgress = Math.floor(progressInfo.progress / 2); // 最大50%
-          } else {
-            finalProgress = 50 + Math.floor(progressInfo.progress / 2); // 50%〜100%
-          }
-          
-          this.events.emit('progress', {
-            ...progressInfo,
-            progress: finalProgress,
-            phase: measurementPhase
-          });
-        }
-        
-        // 第一パス完了を検出
-        if (output.includes('Parsed_loudnorm')) {
-          measurementPhase = 'second_pass';
-          this.events.emit('progress', {
-            progress: 50,
-            phase: 'second_pass'
-          });
-        }
-        
-        // ラウドネスデータを収集
-        if (output.includes('{') && output.includes('}')) {
-          loudnessData += output;
-        }
-      });
-      
-      // エラーハンドリング
-      process.on('error', (error) => {
-        if (taskId) {
-          this.processes.delete(taskId);
-        }
-        reject(error);
-      });
-      
-      // プロセス終了時の処理
-      process.on('close', (code) => {
-        if (taskId) {
-          this.processes.delete(taskId);
-        }
-        
-        if (code !== 0) {
-          reject(new Error(`FFmpegプロセスが${code}で終了しました`));
-          return;
-        }
-        
-        try {
-          // JSON部分を抽出して解析
-          const jsonMatch = loudnessData.match(/\{[\s\S]*\}/);
-          if (!jsonMatch) {
-            reject(new Error('ラウドネスデータの解析に失敗しました'));
-            return;
-          }
-          
-          const jsonData = JSON.parse(jsonMatch[0]);
-          
-          // 結果を保存
-          fs.writeFileSync(outputPath, JSON.stringify(jsonData), 'utf8');
-          
-          // フォーマットされた結果
-          const result = {
-            integrated_loudness: parseFloat(jsonData.input_i),
-            true_peak: parseFloat(jsonData.input_tp),
-            lra: parseFloat(jsonData.input_lra),
-            threshold: parseFloat(jsonData.input_thresh),
-            raw: jsonData,
-            filePath: outputPath
-          };
-          
-          resolve(result);
-        } catch (error) {
-          reject(error);
-        }
-      });
-    });
+  async generateThumbnail(filePath, options = {}) {
+    return this._coreService.generateThumbnail(filePath, options);
   }
 
   /**
-   * サムネイル生成
-   * @param {object} options - オプション
-   * @param {string} options.inputPath - 入力ファイルパス
-   * @param {number} options.timePosition - 時間位置（秒）
-   * @param {string} options.size - サイズ指定（例: '320x240'）
-   * @param {string} options.taskId - タスクID
-   * @returns {Promise<object>} - サムネイル情報（ファイルパスを返す）
+   * 波形データを生成
+   * @param {string} filePath - メディアファイルのパス
+   * @param {Object} options - 波形生成オプション
+   * @returns {Promise<Object>} - 波形データ情報
    */
-  async generateThumbnail(options) {
-    const { 
-      inputPath, 
-      timePosition = 0, 
-      size = '320x240', 
-      taskId 
-    } = options;
-    
-    if (!inputPath) {
-      throw new Error('入力ファイルパスが指定されていません');
-    }
-    
-    // サムネイル用ディレクトリを取得
-    const thumbnailDir = this.getWorkDir('thumbnails');
-    
-    const outputPath = path.join(thumbnailDir, `thumbnail_${Date.now()}.jpg`);
-    
-    // FFmpegのパスを取得
-    const ffmpegPath = this._getFFmpegPath();
-    
-    // 時間をhh:mm:ss形式に変換
-    const formattedTime = this.formatTimeString(timePosition);
-    
-    // FFmpegコマンドライン引数の設定
-    const args = [
-      '-ss', formattedTime,
-      '-i', inputPath,
-      '-vframes', '1',
-      '-s', size,
-      '-y', // 既存ファイルを上書き
-      outputPath
-    ];
-    
-    // 開始を通知
-    this.events.emit('progress', { progress: 10, phase: 'starting' });
-    
-    return new Promise((resolve, reject) => {
-      // FFmpegプロセスを作成
-      const process = spawn(ffmpegPath, args);
-      
-      // プロセスを保存
-      if (taskId) {
-        this.processes.set(taskId, process);
-      }
-      
-      // 処理中を通知
-      this.events.emit('progress', { progress: 50, phase: 'processing' });
-      
-      // エラー出力を収集
-      let errorOutput = '';
-      process.stderr.on('data', (data) => {
-        errorOutput += data.toString();
-      });
-      
-      // エラーハンドリング
-      process.on('error', (error) => {
-        if (taskId) {
-          this.processes.delete(taskId);
-        }
-        reject(error);
-      });
-      
-      // プロセス終了時の処理
-      process.on('close', (code) => {
-        if (taskId) {
-          this.processes.delete(taskId);
-        }
-        
-        if (code !== 0) {
-          reject(new Error(`FFmpegプロセスが${code}で終了しました: ${errorOutput}`));
-          return;
-        }
-        
-        // ファイルの存在確認
-        if (!fs.existsSync(outputPath)) {
-          reject(new Error('サムネイルファイルが生成されませんでした'));
-          return;
-        }
-        
-        // ファイルサイズの確認
-        const fileStats = fs.statSync(outputPath);
-        if (fileStats.size === 0) {
-          reject(new Error('生成されたサムネイルファイルが空です'));
-          return;
-        }
-        
-        // 以前のBase64エンコードは行わず、ファイルパスのみを返す
-        // バイナリーデータはファイルベースでやり取りするポリシーに基づく
-        const result = {
-          filePath: outputPath,
-          timePosition: timePosition,
-          size: size
-        };
-        
-        resolve(result);
-      });
-    });
+  async generateWaveform(filePath, options = {}) {
+    return this._coreService.generateWaveform(filePath, options);
   }
 
   /**
-   * タスクキャンセル
-   * @param {string} taskId - キャンセルするタスクのID
-   * @returns {boolean} - 成功したらtrue
+   * メディアファイルをトリム
+   * @param {string} filePath - メディアファイルのパス
+   * @param {Object} options - トリムオプション
+   * @returns {Promise<Object>} - トリム結果情報
    */
-  cancelTask(taskId) {
-    if (!this.processes.has(taskId)) {
-      return false;
-    }
-    
-    try {
-      const process = this.processes.get(taskId);
-      process.kill('SIGTERM');
-      this.processes.delete(taskId);
-      return true;
-    } catch (err) {
-      console.error('FFmpegプロセスの終了に失敗:', err);
-      return false;
-    }
+  async trimMedia(filePath, options = {}) {
+    return this._coreService.trimMedia(filePath, options);
   }
 
   /**
-   * イベントリスナー登録
+   * タスクのステータスを取得
+   * @param {string} taskId - タスクID
+   * @returns {Object|null} - タスク情報
+   */
+  getTaskStatus(taskId) {
+    return this._coreService.getTaskStatus(taskId);
+  }
+
+  /**
+   * タスクをキャンセル
+   * @param {string} taskId - タスクID
+   * @returns {Promise<boolean>} - キャンセル結果
+   */
+  async cancelTask(taskId) {
+    return this._coreService.cancelTask(taskId);
+  }
+
+  /**
+   * 全てのタスクをキャンセル
+   * @returns {Promise<Array>} - キャンセル結果の配列
+   */
+  async cancelAllTasks() {
+    return this._coreService.cancelAllTasks();
+  }
+
+  /**
+   * 実行中のタスク数を取得
+   * @returns {number} - 実行中のタスク数
+   */
+  getActiveTaskCount() {
+    return this._coreService.getActiveTaskCount();
+  }
+
+  /**
+   * すべてのタスク情報を取得
+   * @returns {Array<Object>} - タスク情報の配列
+   */
+  getAllTasks() {
+    return this._coreService.getAllTasks();
+  }
+
+  /**
+   * イベントリスナーを登録
    * @param {string} event - イベント名
    * @param {Function} listener - リスナー関数
    */
@@ -535,7 +193,7 @@ class FFmpegService {
   }
 
   /**
-   * イベントリスナー解除
+   * イベントリスナーを解除
    * @param {string} event - イベント名
    * @param {Function} listener - リスナー関数
    */
@@ -543,9 +201,31 @@ class FFmpegService {
     this.events.off(event, listener);
     return this;
   }
+
+  /**
+   * イベントを発行
+   * @param {string} event - イベント名
+   * @param {...any} args - イベント引数
+   */
+  emit(event, ...args) {
+    this.events.emit(event, ...args);
+    return this;
+  }
 }
 
-// シングルトンインスタンスの作成
-const ffmpegService = new FFmpegService();
+// FFmpegServiceのシングルトンインスタンス
+let instance = null;
 
-module.exports = ffmpegService;
+/**
+ * FFmpegServiceのシングルトンインスタンスを取得
+ * @returns {FFmpegService} - FFmpegServiceのインスタンス
+ */
+function getFFmpegService() {
+  if (!instance) {
+    instance = new FFmpegService();
+  }
+  return instance;
+}
+
+module.exports = getFFmpegService();
+module.exports.FFmpegService = FFmpegService;
