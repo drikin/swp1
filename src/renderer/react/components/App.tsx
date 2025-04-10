@@ -7,7 +7,7 @@ import {
 import Header from './Header';
 import TimelinePane from './Timeline';
 import VideoPlayer, { VideoPlayerRef } from './VideoPlayer';
-import TrimPane from './TrimPane';
+import TrimPane from './Trim';
 import ExportSettings from './ExportSettings';
 import FooterTaskBar from './FooterTaskBar';
 import TaskDetailsPanel from './TaskDetailsPanel';
