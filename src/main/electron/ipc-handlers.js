@@ -24,26 +24,45 @@ const {
 function registerIpcHandlers() {
   console.log('IPCハンドラーを登録しています...');
   
+  // ハンドラーを安全に登録するヘルパー関数
+  const safelyRegisterHandler = (channel, handler) => {
+    try {
+      // 既存のハンドラーがあれば削除を試みる
+      try {
+        ipcMain.removeHandler(channel);
+        console.log(`既存の ${channel} ハンドラを削除しました`);
+      } catch (error) {
+        // 既存のハンドラーがない場合は何もしない
+      }
+      
+      // 新しいハンドラーを登録
+      ipcMain.handle(channel, handler);
+      console.log(`${channel} ハンドラを登録しました`);
+    } catch (error) {
+      console.error(`${channel} ハンドラの登録に失敗しました:`, error);
+    }
+  };
+  
   // ファイル操作関連のハンドラー
-  ipcMain.handle('open-file-dialog', async () => {
+  safelyRegisterHandler('open-file-dialog', async () => {
     const win = getMainWindow();
     return win ? await openFileDialog(win) : [];
   });
   
-  ipcMain.handle('open-directory-dialog', async () => {
+  safelyRegisterHandler('open-directory-dialog', async () => {
     const win = getMainWindow();
     return win ? await openDirectoryDialog(win) : [];
   });
   
-  ipcMain.handle('get-desktop-path', () => {
+  safelyRegisterHandler('get-desktop-path', () => {
     return app.getPath('desktop');
   });
   
   // FFmpeg関連のハンドラー
-  ipcMain.handle('check-ffmpeg', async () => {
+  safelyRegisterHandler('check-ffmpeg', async () => {
     // FFmpegサービスのヘルスチェック
     try {
-      await ffmpegServiceManager._healthCheck();
+      await ffmpegServiceManager.checkHealth();
       return { success: true, version: 'Available' };
     } catch (error) {
       return { success: false, error: error.message };
@@ -51,77 +70,77 @@ function registerIpcHandlers() {
   });
   
   // メディア情報取得ハンドラー
-  ipcMain.handle('get-media-info', async (_, filePath) => {
+  safelyRegisterHandler('get-media-info', async (_, filePath) => {
     return await getMediaInfo(filePath);
   });
   
   // サムネイル生成ハンドラー
-  ipcMain.handle('generate-thumbnail', async (_, pathOrOptions, fileId) => {
+  safelyRegisterHandler('generate-thumbnail', async (_, pathOrOptions, fileId) => {
     return await generateThumbnail(pathOrOptions, fileId);
   });
   
   // 波形データ生成ハンドラー
-  ipcMain.handle('generate-waveform', async (_, filePath, outputPath) => {
+  safelyRegisterHandler('generate-waveform', async (_, filePath, outputPath) => {
     return await generateWaveform(filePath, outputPath);
   });
   
   // FFmpegタスク関連のハンドラー
-  ipcMain.handle('ffmpeg-task-status', async (_, taskId) => {
+  safelyRegisterHandler('ffmpeg-task-status', async (_, taskId) => {
     return await ffmpegServiceManager.getTaskStatus(taskId);
   });
   
-  ipcMain.handle('ffmpeg-task-cancel', async (_, taskId) => {
+  safelyRegisterHandler('ffmpeg-task-cancel', async (_, taskId) => {
     return await ffmpegServiceManager.cancelTask(taskId);
   });
   
   // タスク管理システム関連のハンドラー
-  ipcMain.handle('get-task-list', async () => {
+  safelyRegisterHandler('get-task-list', async () => {
     const taskManager = getTaskManager();
     return taskManager ? taskManager.getTasksSummary() : [];
   });
   
-  ipcMain.handle('get-task-status', async (_, taskId) => {
+  safelyRegisterHandler('get-task-status', async (_, taskId) => {
     const taskManager = getTaskManager();
     return taskManager ? taskManager.getTaskStatus(taskId) : null;
   });
   
-  ipcMain.handle('cancel-task', async (_, taskId) => {
+  safelyRegisterHandler('cancel-task', async (_, taskId) => {
     const taskManager = getTaskManager();
     return taskManager ? taskManager.cancelTask(taskId) : false;
   });
   
-  ipcMain.handle('get-task-id-by-media-path', async (_, mediaPath, taskType) => {
+  safelyRegisterHandler('get-task-id-by-media-path', async (_, mediaPath, taskType) => {
     const taskManager = getTaskManager();
     return taskManager ? taskManager.getTaskIdByMediaPath(mediaPath, taskType) : null;
   });
   
-  ipcMain.handle('get-waveform-data', async (_, taskId) => {
+  safelyRegisterHandler('get-waveform-data', async (_, taskId) => {
     const taskManager = getTaskManager();
     return taskManager ? taskManager.getWaveformData(taskId) : null;
   });
   
   // 新しいタスク管理システムのハンドラー
-  ipcMain.handle('create-task', async (_, taskType, options) => {
+  safelyRegisterHandler('create-task', async (_, taskType, options) => {
     const taskManager = getTaskManager();
     return taskManager ? taskManager.createTask(taskType, options) : null;
   });
   
-  ipcMain.handle('get-task-result', async (_, taskId) => {
+  safelyRegisterHandler('get-task-result', async (_, taskId) => {
     const taskManager = getTaskManager();
     return taskManager ? taskManager.getTaskResult(taskId) : null;
   });
   
-  ipcMain.handle('find-tasks-by-media', async (_, mediaPath) => {
+  safelyRegisterHandler('find-tasks-by-media', async (_, mediaPath) => {
     const taskManager = getTaskManager();
     return taskManager ? taskManager.findTasksByMedia(mediaPath) : [];
   });
   
-  ipcMain.handle('get-task-types', async () => {
+  safelyRegisterHandler('get-task-types', async () => {
     const taskManager = getTaskManager();
     return taskManager ? taskManager.getTaskTypes() : [];
   });
   
-  ipcMain.handle('clean-tasks-history', async () => {
+  safelyRegisterHandler('clean-tasks-history', async () => {
     const taskManager = getTaskManager();
     return taskManager ? taskManager.cleanHistory() : false;
   });
@@ -135,8 +154,27 @@ function registerIpcHandlers() {
 function registerExportHandlers() {
   console.log('エクスポート関連ハンドラーを登録しています...');
   
+  // ハンドラーを安全に登録するヘルパー関数
+  const safelyRegisterHandler = (channel, handler) => {
+    try {
+      // 既存のハンドラーがあれば削除を試みる
+      try {
+        ipcMain.removeHandler(channel);
+        console.log(`既存の ${channel} ハンドラを削除しました`);
+      } catch (error) {
+        // 既存のハンドラーがない場合は何もしない
+      }
+      
+      // 新しいハンドラーを登録
+      ipcMain.handle(channel, handler);
+      console.log(`${channel} ハンドラを登録しました`);
+    } catch (error) {
+      console.error(`${channel} ハンドラの登録に失敗しました:`, error);
+    }
+  };
+  
   // 動画結合ハンドラー
-  ipcMain.handle('export-combined-video', async (_, options) => {
+  safelyRegisterHandler('export-combined-video', async (_, options) => {
     const win = getMainWindow();
     if (!win) return { success: false, error: 'メインウィンドウが見つかりません' };
     

@@ -44,7 +44,13 @@ const ffmpeg = require('fluent-ffmpeg');
 ffmpeg.setFfmpegPath(ffmpegPath);
 
 // Electronの初期化が完了したら実行
-app.whenReady().then(initializeApp);
+app.whenReady().then(async () => {
+  await initializeApp();
+  
+  // すべてのIPCハンドラーを登録
+  registerIpcHandlers();
+  registerExportHandlers();
+});
 
 // すべてのウィンドウが閉じられたときの処理 (macOS以外)
 app.on('window-all-closed', () => {
@@ -76,7 +82,7 @@ app.on('activate', () => {
   // アプリケーションの初期化が完了したら、IPCハンドラーを登録
   if (app.isReady()) {
     // すべてのIPCハンドラーを登録
-    registerIpcHandlers();
-    registerExportHandlers();
+    // registerIpcHandlers();
+    // registerExportHandlers();
   }
 });

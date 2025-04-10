@@ -7,21 +7,62 @@ const path = require('path');
 const fs = require('fs');
 const EventEmitter = require('events');
 const os = require('os');
+const express = require('express');
+const cors = require('cors');
+
+// デバッグ用ロギング
+console.log('FFmpegサービス読み込み開始');
+
+// ffmpgディレクトリの内容を確認
+try {
+  console.log('FFmpeg モジュールを検索中...');
+  const ffmpegDir = path.join(__dirname, 'ffmpeg');
+  const ffmpegFiles = fs.readdirSync(ffmpegDir);
+  console.log('FFmpegディレクトリ内のファイル:', ffmpegFiles);
+  
+  // index.jsファイルの内容を確認
+  const indexPath = path.join(ffmpegDir, 'index.js');
+  if (fs.existsSync(indexPath)) {
+    console.log('index.jsを読み込みます');
+    try {
+      const ffmpegModule = require('./ffmpeg/index');
+      console.log('FFmpegモジュールのエクスポート:', Object.keys(ffmpegModule));
+    } catch (importErr) {
+      console.error('FFmpegモジュールのインポートエラー:', importErr);
+    }
+  }
+} catch (err) {
+  console.error('FFmpegディレクトリ読み込みエラー:', err);
+}
 
 class FFmpegService {
   constructor() {
     this.events = new EventEmitter();
     this.processes = new Map(); // タスクIDとFFmpegプロセスのマッピング
     
-    // 新しい実装に移行するための内部インスタンス
-    const { FFmpegServiceCore } = require('./ffmpeg');
-    this._coreService = new FFmpegServiceCore();
-    
-    // イベント転送を設定
-    this._forwardEvents();
-    
-    // 作業ディレクトリを初期化
-    this.baseWorkDir = this._coreService.directories.base;
+    try {
+      // 新しい実装に移行するための内部インスタンス
+      const ffmpegModule = require('./ffmpeg/index');
+      console.log('FFmpegモジュールを正常に読み込みました');
+      
+      if (!ffmpegModule.FFmpegServiceCore) {
+        throw new Error('FFmpegServiceCoreクラスが見つかりません');
+      }
+      
+      const { FFmpegServiceCore } = ffmpegModule;
+      this._coreService = new FFmpegServiceCore();
+      
+      // イベント転送を設定
+      this._forwardEvents();
+      
+      // 作業ディレクトリを初期化
+      this.baseWorkDir = this._coreService.directories.base;
+      
+      console.log('FFmpegServiceの初期化が完了しました');
+    } catch (error) {
+      console.error('FFmpegServiceの初期化エラー:', error);
+      throw error; // エラーを再スロー
+    }
   }
 
   /**
@@ -229,3 +270,112 @@ function getFFmpegService() {
 
 module.exports = getFFmpegService();
 module.exports.FFmpegService = FFmpegService;
+
+// スタンドアロンプロセスとして実行する場合のみサーバーを起動
+if (require.main === module) {
+  // Expressアプリケーションの初期化
+  const app = express();
+  const port = process.env.FFMPEG_SERVICE_PORT || 3001;
+  
+  // CORSを有効化
+  app.use(cors());
+  app.use(express.json());
+  
+  // サービスインスタンスの取得
+  const ffmpegService = getFFmpegService();
+  
+  // ヘルスチェックエンドポイント
+  app.get('/health', (req, res) => {
+    res.json({ status: 'ok', timestamp: new Date().toISOString() });
+  });
+  
+  // FFmpegプロセス実行エンドポイント
+  app.post('/process', async (req, res) => {
+    try {
+      const { taskId, args, outputFormat, timeout } = req.body;
+      
+      if (!args || !Array.isArray(args)) {
+        return res.status(400).json({ error: '無効なパラメータです' });
+      }
+      
+      // タスクの実行
+      const task = await ffmpegService.taskManager.createTask({
+        type: 'ffmpeg',
+        args: args,
+        outputFormat,
+        timeout
+      });
+      
+      res.json({ success: true, taskId: task.id });
+    } catch (error) {
+      console.error('プロセス実行エラー:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  // タスク状態取得エンドポイント
+  app.get('/status/:taskId', async (req, res) => {
+    try {
+      const taskId = req.params.taskId;
+      const status = ffmpegService.getTaskStatus(taskId);
+      
+      if (!status) {
+        return res.status(404).json({ error: 'タスクが見つかりません' });
+      }
+      
+      res.json(status);
+    } catch (error) {
+      console.error('タスク状態取得エラー:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  // タスクキャンセルエンドポイント
+  app.post('/cancel/:taskId', async (req, res) => {
+    try {
+      const taskId = req.params.taskId;
+      const result = await ffmpegService.cancelTask(taskId);
+      
+      res.json({ success: result });
+    } catch (error) {
+      console.error('タスクキャンセルエラー:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  // サーバーシャットダウンエンドポイント
+  app.post('/shutdown', async (req, res) => {
+    console.log('シャットダウンリクエストを受信しました');
+    
+    try {
+      // 実行中のすべてのタスクをキャンセル
+      await ffmpegService.cancelAllTasks();
+      
+      // 応答を返す
+      res.json({ success: true, message: 'サーバーをシャットダウンします' });
+      
+      // サーバーを少し遅れてシャットダウン
+      setTimeout(() => {
+        console.log('FFmpegサービスを終了します');
+        process.exit(0);
+      }, 500);
+    } catch (error) {
+      console.error('シャットダウンエラー:', error);
+      res.status(500).json({ error: error.message });
+    }
+  });
+  
+  // サーバーの起動
+  const server = app.listen(port, () => {
+    console.log(`FFmpegサービスがポート${port}で起動しました`);
+  });
+  
+  // 例外ハンドリング
+  process.on('uncaughtException', (error) => {
+    console.error('予期しない例外が発生しました:', error);
+  });
+  
+  process.on('unhandledRejection', (reason, promise) => {
+    console.error('未処理のPromise拒否が発生しました:', reason);
+  });
+}

@@ -408,6 +408,14 @@ class FFmpegServiceManager extends EventEmitter {
   }
 
   /**
+   * サービスのヘルスステータスをチェック
+   * @returns {Promise<boolean>} - サービスが健全に動作しているか
+   */
+  checkHealth() {
+    return this._healthCheck();
+  }
+
+  /**
    * サービスのヘルスチェック
    */
   async _healthCheck() {
