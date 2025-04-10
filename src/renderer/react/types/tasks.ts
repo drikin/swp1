@@ -3,7 +3,7 @@
  */
 
 // タスクの状態
-export type TaskStatus = 'pending' | 'processing' | 'completed' | 'failed' | 'error' | 'cancelled';
+export type TaskStatus = 'pending' | 'processing' | 'running' | 'completed' | 'failed' | 'error' | 'cancelled';
 
 // タスクの基本構造
 export interface Task {
@@ -43,6 +43,8 @@ export interface TaskContextState {
   isLoading: boolean;
   error: string | null;
   taskStatus: Record<string, TaskStatus>;
+  activeTaskCount: number; // 追加：アクティブなタスク数
+  overallProgress: number; // 追加：全体の進捗状況
 }
 
 // タスクコンテキストのアクション
@@ -60,3 +62,12 @@ export interface TaskContextActions {
 
 // タスクコンテキストの最終型
 export interface TaskContextValue extends TaskContextState, TaskContextActions {}
+
+// タスクAPIレスポンス型（electron.d.ts と互換性を持たせるための型）
+export interface TaskStatusResponse {
+  id: string;
+  status: TaskStatus;
+  progress: number;
+  type: string;
+  error?: string;
+}

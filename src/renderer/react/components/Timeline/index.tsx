@@ -14,6 +14,17 @@ interface TimelinePaneProps {
   onUpdateMedia?: (mediaId: string, updates: any) => void;
 }
 
+interface LoudnessResult {
+  lufs: number;
+  lufsGain: number;
+}
+
+// サムネイル結果の型定義
+interface ThumbnailResult {
+  id: string;
+  url: string;
+}
+
 /**
  * タイムラインペインコンポーネント
  */
@@ -119,7 +130,7 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
   /**
    * ラウドネス測定を開始
    */
-  const handleMeasureLoudness = useCallback((media: any, e: React.MouseEvent) => {
+  const handleMeasureLoudness = useCallback(async (media: any, e: React.MouseEvent) => {
     e.stopPropagation();
     
     if (!onUpdateMedia || measuringLoudness[media.id]) return;
@@ -128,17 +139,24 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
     setMeasuringLoudness(prev => ({ ...prev, [media.id]: true }));
     
     // ラウドネス測定タスクを開始
-    window.api.createTask('measureLoudness', {
-      mediaId: media.id,
-      filePath: media.path
-    }).then(result => {
+    if (!window.api) {
+      console.error('window.api が見つかりません');
+      return;
+    }
+    
+    try {
+      const result: any = await window.api.invoke('create-task', 'measureLoudness', {
+        mediaId: media.id,
+        filePath: media.path
+      });
+      
       if (!result?.taskId) {
         throw new Error('タスク作成に失敗しました');
       }
       
       // タスクの状態監視を開始
       monitorTaskStatus(result.taskId, (taskStatus) => {
-        if (taskStatus.status === 'completed' && taskStatus.result) {
+        if (taskStatus && taskStatus.status === 'completed' && taskStatus.data) {
           // 測定成功
           setMeasuringLoudness(prev => ({ ...prev, [media.id]: false }));
           setLoudnessErrors(prev => {
@@ -147,7 +165,8 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
             return newErrors;
           });
           
-          const { lufs, lufsGain } = taskStatus.result;
+          const loudnessData = taskStatus.data as LoudnessResult;
+          const { lufs, lufsGain } = loudnessData;
           
           // メディア情報を更新
           onUpdateMedia(media.id, {
@@ -156,7 +175,7 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
             loudnessNormalization: true
           });
         } 
-        else if (taskStatus.status === 'error' || taskStatus.status === 'failed') {
+        else if (taskStatus && (taskStatus.status === 'error' || taskStatus.status === 'failed')) {
           // 測定失敗
           setMeasuringLoudness(prev => ({ ...prev, [media.id]: false }));
           setLoudnessErrors(prev => ({
@@ -165,14 +184,14 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
           }));
         }
       });
-    }).catch(error => {
+    } catch (error: any) {
       console.error('ラウドネス測定タスク作成エラー:', error);
       setMeasuringLoudness(prev => ({ ...prev, [media.id]: false }));
       setLoudnessErrors(prev => ({
         ...prev,
         [media.id]: error.message || '不明なエラー'
       }));
-    });
+    }
   }, [measuringLoudness, onUpdateMedia, monitorTaskStatus]);
 
   /**
@@ -201,6 +220,7 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
           if (thumbnails[media.id]) return null;
           
           const url = await getThumbnailForMedia(media);
+          if (!url) return null;
           return { id: media.id, url };
         } catch (error) {
           console.error(`サムネイル取得エラー (${media.id}):`, error);
@@ -214,7 +234,7 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
       const newThumbnails: Record<string, string> = { ...thumbnails };
       
       results.forEach(result => {
-        if (result) {
+        if (result && result.id && result.url) {
           newThumbnails[result.id] = result.url;
         }
       });

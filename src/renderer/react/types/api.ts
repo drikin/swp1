@@ -2,7 +2,7 @@
  * API インターフェースの型定義
  */
 
-import { Task, TaskStatus, TaskResult } from './tasks';
+import { Task, TaskStatus, TaskResult, TaskStatusResponse } from './tasks';
 import { ThumbnailGenerateParams, WaveformDataResponse } from './media';
 
 // Electron APIインターフェース
@@ -38,13 +38,7 @@ export interface ElectronAPI {
   // タスク関連
   getFFmpegTaskStatus: (taskId: string) => Promise<any>;
   cancelFFmpegTask: (taskId: string) => Promise<any>;
-  getTaskStatus: (taskId: string) => Promise<{
-    id: string;
-    status: TaskStatus;
-    progress: number;
-    type: string;
-    error?: string;
-  }>;
+  getTaskStatus: (taskId: string) => Promise<TaskStatusResponse>;
   getTaskResult: (taskId: string) => Promise<TaskResult | null>;
   getTaskList: () => Promise<{ tasks: Task[] }>;
   cancelTask: (taskId: string) => Promise<{ success: boolean; error?: string }>;
@@ -77,16 +71,6 @@ export interface ElectronAPI {
   openFileDialog: (options?: any) => Promise<string[]>;
   openDirectoryDialog: () => Promise<string>;
   getDesktopPath: () => Promise<string>;
-}
-
-// ウィンドウに拡張された型定義
-export interface ElectronWindow extends Window {
-  api: ElectronAPI;
-  versions: {
-    node: () => string;
-    chrome: () => string;
-    electron: () => string;
-  };
 }
 
 // Electronでのファイル型拡張

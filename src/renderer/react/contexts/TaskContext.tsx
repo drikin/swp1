@@ -11,6 +11,8 @@ const defaultTaskContextValue: TaskContextValue = {
   isLoading: false,
   error: null,
   taskStatus: {},
+  activeTaskCount: 0, // 追加：アクティブなタスク数の初期値
+  overallProgress: 0, // 追加：全体の進捗状況の初期値
   
   // アクション
   fetchTasks: async () => [],
@@ -32,6 +34,8 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [taskStatus, setTaskStatus] = useState<Record<string, TaskStatus>>({});
+  const [activeTaskCount, setActiveTaskCount] = useState(0); // 追加：アクティブなタスク数のステート
+  const [overallProgress, setOverallProgress] = useState(0); // 追加：全体の進捗状況のステート
 
   /**
    * タスク一覧の取得
@@ -66,6 +70,12 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
           statusMap[task.id] = task.status;
         });
         setTaskStatus(statusMap);
+        
+        // アクティブなタスク数と全体の進捗状況を更新
+        const activeCount = typedTasks.filter(task => task.status === 'running' || task.status === 'pending').length;
+        const overallProgressValue = typedTasks.reduce((acc, task) => acc + task.progress, 0) / typedTasks.length;
+        setActiveTaskCount(activeCount);
+        setOverallProgress(overallProgressValue);
         
         setTasks(typedTasks);
         setIsLoading(false);
@@ -316,6 +326,12 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
         });
         setTaskStatus(statusMap);
         
+        // アクティブなタスク数と全体の進捗状況を更新
+        const activeCount = typedTasks.filter(task => task.status === 'running' || task.status === 'pending').length;
+        const overallProgressValue = typedTasks.reduce((acc, task) => acc + task.progress, 0) / typedTasks.length;
+        setActiveTaskCount(activeCount);
+        setOverallProgress(overallProgressValue);
+        
         setTasks(typedTasks);
         Logger.debug('TaskContext', 'タスク一覧が更新されました', {
           count: typedTasks.length
@@ -351,6 +367,8 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
     isLoading,
     error,
     taskStatus,
+    activeTaskCount,
+    overallProgress,
     
     // アクション
     fetchTasks,

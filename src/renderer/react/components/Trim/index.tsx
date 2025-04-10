@@ -24,7 +24,7 @@ const TrimPane: React.FC<TrimPaneProps> = ({
   // 波形データフック
   const { 
     waveformData, 
-    isLoading: isLoadingWaveform, 
+    isLoadingWaveform, 
     generateWaveform, 
     error: waveformError 
   } = useWaveform();
@@ -59,7 +59,7 @@ const TrimPane: React.FC<TrimPaneProps> = ({
     if (!media || !media.path) return;
     
     try {
-      await generateWaveform(media.path, media.id);
+      await generateWaveform(media.path);
     } catch (error) {
       console.error('波形データ生成エラー:', error);
     }

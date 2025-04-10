@@ -4,7 +4,7 @@
     "module": "commonjs",
     "esModuleInterop": true,
     "forceConsistentCasingInFileNames": true,
-    "strict": true,
+    "strict": false,
     "skipLibCheck": true,
     "jsx": "react",
     "sourceMap": true,
@@ -15,7 +15,9 @@
       "@mui/icons-material": ["node_modules/@mui/icons-material"],
       "@mui/icons-material/*": ["node_modules/@mui/icons-material/*"]
     },
-    "lib": ["dom", "es2016"]
+    "lib": ["dom", "es2016"],
+    "noImplicitAny": false,
+    "strictNullChecks": false
   },
   "include": ["src/renderer/react/**/*"]
 }

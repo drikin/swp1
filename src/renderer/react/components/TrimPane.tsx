@@ -179,6 +179,168 @@ const TrimPane: React.FC<TrimPaneProps> = ({
     }
   }, [currentTime, inPoint, selectedMedia, onUpdateTrimPoints]);
 
+  // 波形を描画する関数
+  const drawWaveform = useCallback(() => {
+    const canvas = waveformCanvasRef.current;
+    if (!canvas || !selectedMedia || !waveformData || waveformData.length === 0) {
+      return;
+    }
+    
+    const ctx = canvas.getContext('2d');
+    if (!ctx) return;
+    
+    const dpr = window.devicePixelRatio || 1;
+    const width = canvas.width;
+    const height = canvas.height;
+    const duration = selectedMedia.duration || 1; // 0除算を防ぐ
+    
+    // キャンバスをクリア
+    ctx.clearRect(0, 0, width, height);
+    ctx.save();
+    ctx.scale(dpr, dpr);
+    
+    // 背景を描画
+    ctx.fillStyle = '#f5f5f5';
+    ctx.fillRect(0, 0, width, height);
+    
+    // 1秒ごとの目盛りを描画
+    ctx.strokeStyle = '#e0e0e0';
+    ctx.lineWidth = 1;
+    const pixelsPerSecond = (width / dpr) / duration;
+    
+    for (let i = 0; i <= duration; i++) {
+      const x = i * pixelsPerSecond;
+      
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, height / dpr);
+      ctx.stroke();
+      
+      // 5秒ごとに時間を表示
+      if (i % 5 === 0 || i === Math.floor(duration)) {
+        ctx.fillStyle = '#757575';
+        ctx.font = '10px Arial';
+        ctx.fillText(`${i}s`, x + 2, 12);
+      }
+    }
+    
+    // 波形データがない場合は終了
+    if (!waveformData.length) {
+      ctx.restore();
+      return;
+    }
+    
+    // データポイントが多すぎる場合はダウンサンプリング
+    const displayWidth = width / dpr;
+    const dataPoints = Math.min(displayWidth, waveformData.length);
+    const step = waveformData.length / dataPoints;
+    
+    // 選択範囲を描画
+    if (inPoint !== null && outPoint !== null) {
+      const inX = (inPoint / duration) * displayWidth;
+      const outX = (outPoint / duration) * displayWidth;
+      
+      ctx.fillStyle = 'rgba(25, 118, 210, 0.3)'; // primary colorの薄い色
+      ctx.fillRect(inX, 0, outX - inX, height / dpr);
+    }
+    
+    // 波形の描画
+    ctx.beginPath();
+    ctx.strokeStyle = '#4dabf5';
+    ctx.lineWidth = 1.5;
+    
+    // 波形の中央線（0dBの位置）
+    const centerY = (height / dpr) / 2;
+    
+    for (let i = 0; i < dataPoints; i++) {
+      const x = i;
+      const dataIndex = Math.floor(i * step);
+      // 波形データは0-1の範囲を想定
+      const amplitude = waveformData[dataIndex] * ((height / dpr) / 2);
+      
+      if (i === 0) {
+        ctx.moveTo(x, centerY - amplitude);
+      } else {
+        ctx.lineTo(x, centerY - amplitude);
+      }
+    }
+    
+    // 中央線から下の波形を描画
+    for (let i = dataPoints - 1; i >= 0; i--) {
+      const x = i;
+      const dataIndex = Math.floor(i * step);
+      // 波形データは0-1の範囲を想定
+      const amplitude = waveformData[dataIndex] * ((height / dpr) / 2);
+      
+      ctx.lineTo(x, centerY + amplitude);
+    }
+    
+    ctx.closePath();
+    ctx.fillStyle = 'rgba(33, 150, 243, 0.1)';
+    ctx.fill();
+    ctx.stroke();
+    
+    // 現在位置を描画
+    if (currentTime !== undefined) {
+      const currentX = (currentTime / duration) * displayWidth;
+      
+      ctx.beginPath();
+      ctx.strokeStyle = '#4caf50'; // success color
+      ctx.lineWidth = 2;
+      ctx.moveTo(currentX, 0);
+      ctx.lineTo(currentX, height / dpr);
+      ctx.stroke();
+    }
+    
+    ctx.restore();
+  }, [waveformData, selectedMedia, inPoint, outPoint, currentTime]);
+
+  // キャンバスのサイズを設定
+  const resizeCanvas = useCallback(() => {
+    const canvas = waveformCanvasRef.current;
+    const container = canvas?.parentElement;
+    
+    if (!canvas || !container) return;
+    
+    // デバイスピクセル比を取得してHiDPIディスプレイに対応
+    const dpr = window.devicePixelRatio || 1;
+    
+    // コンテナのサイズに合わせる
+    canvas.width = container.clientWidth * dpr;
+    canvas.height = container.clientHeight * dpr;
+    canvas.style.width = `${container.clientWidth}px`;
+    canvas.style.height = `${container.clientHeight}px`;
+    
+    // drawWaveformを安全に呼び出し
+    if (waveformData && waveformData.length > 0 && selectedMedia) {
+      drawWaveform();
+    }
+    
+    Logger.debug('TrimPane', 'キャンバスサイズ更新', { width: canvas.width, height: canvas.height });
+  }, [drawWaveform, waveformData, selectedMedia]);
+
+  // 波形データと選択範囲を描画
+  useEffect(() => {
+    const drawCanvas = () => {
+      if (!selectedMedia || !waveformCanvasRef.current || !waveformData || waveformData.length === 0) {
+        return;
+      }
+      
+      if (isInitialRender.current) {
+        isInitialRender.current = false;
+        resizeCanvas();
+      }
+      
+      if (animationFrameId.current) {
+        cancelAnimationFrame(animationFrameId.current);
+      }
+      
+      animationFrameId.current = requestAnimationFrame(drawWaveform);
+    };
+    
+    drawCanvas();
+  }, [waveformData, selectedMedia, inPoint, outPoint, currentTime, resizeCanvas, drawWaveform]);
+
   // 波形データの描画
   const renderWaveform = useCallback(() => {
     if (!selectedMedia) {
@@ -305,168 +467,6 @@ const TrimPane: React.FC<TrimPaneProps> = ({
       </Box>
     );
   }, [selectedMedia, isLoadingWaveform, displayError, waveformData, handleFetchWaveform, inPoint, outPoint]);
-
-  // 波形データと選択範囲を描画
-  useEffect(() => {
-    const drawCanvas = () => {
-      if (!selectedMedia || !waveformCanvasRef.current || !waveformData || waveformData.length === 0) {
-        return;
-      }
-      
-      if (isInitialRender.current) {
-        isInitialRender.current = false;
-        resizeCanvas();
-      }
-      
-      if (animationFrameId.current) {
-        cancelAnimationFrame(animationFrameId.current);
-      }
-      
-      animationFrameId.current = requestAnimationFrame(drawWaveform);
-    };
-    
-    drawCanvas();
-  }, [waveformData, selectedMedia, inPoint, outPoint, currentTime]);
-  
-  // キャンバスのサイズを設定
-  const resizeCanvas = useCallback(() => {
-    const canvas = waveformCanvasRef.current;
-    const container = canvas?.parentElement;
-    
-    if (!canvas || !container) return;
-    
-    // デバイスピクセル比を取得してHiDPIディスプレイに対応
-    const dpr = window.devicePixelRatio || 1;
-    
-    // コンテナのサイズに合わせる
-    canvas.width = container.clientWidth * dpr;
-    canvas.height = container.clientHeight * dpr;
-    canvas.style.width = `${container.clientWidth}px`;
-    canvas.style.height = `${container.clientHeight}px`;
-    
-    // drawWaveformを安全に呼び出し
-    if (waveformData && waveformData.length > 0 && selectedMedia) {
-      drawWaveform();
-    }
-    
-    Logger.debug('TrimPane', 'キャンバスサイズ更新', { width: canvas.width, height: canvas.height });
-  }, [drawWaveform, waveformData, selectedMedia]);
-
-  // 波形を描画する関数
-  const drawWaveform = useCallback(() => {
-    const canvas = waveformCanvasRef.current;
-    if (!canvas || !selectedMedia || !waveformData || waveformData.length === 0) {
-      return;
-    }
-    
-    const ctx = canvas.getContext('2d');
-    if (!ctx) return;
-    
-    const dpr = window.devicePixelRatio || 1;
-    const width = canvas.width;
-    const height = canvas.height;
-    const duration = selectedMedia.duration || 1; // 0除算を防ぐ
-    
-    // キャンバスをクリア
-    ctx.clearRect(0, 0, width, height);
-    ctx.save();
-    ctx.scale(dpr, dpr);
-    
-    // 背景を描画
-    ctx.fillStyle = '#f5f5f5';
-    ctx.fillRect(0, 0, width, height);
-    
-    // 1秒ごとの目盛りを描画
-    ctx.strokeStyle = '#e0e0e0';
-    ctx.lineWidth = 1;
-    const pixelsPerSecond = (width / dpr) / duration;
-    
-    for (let i = 0; i <= duration; i++) {
-      const x = i * pixelsPerSecond;
-      
-      ctx.beginPath();
-      ctx.moveTo(x, 0);
-      ctx.lineTo(x, height / dpr);
-      ctx.stroke();
-      
-      // 5秒ごとに時間を表示
-      if (i % 5 === 0 || i === Math.floor(duration)) {
-        ctx.fillStyle = '#757575';
-        ctx.font = '10px Arial';
-        ctx.fillText(`${i}s`, x + 2, 12);
-      }
-    }
-    
-    // 波形データがない場合は終了
-    if (!waveformData.length) {
-      ctx.restore();
-      return;
-    }
-    
-    // データポイントが多すぎる場合はダウンサンプリング
-    const displayWidth = width / dpr;
-    const dataPoints = Math.min(displayWidth, waveformData.length);
-    const step = waveformData.length / dataPoints;
-    
-    // 選択範囲を描画
-    if (inPoint !== null && outPoint !== null) {
-      const inX = (inPoint / duration) * displayWidth;
-      const outX = (outPoint / duration) * displayWidth;
-      
-      ctx.fillStyle = 'rgba(25, 118, 210, 0.3)'; // primary colorの薄い色
-      ctx.fillRect(inX, 0, outX - inX, height / dpr);
-    }
-    
-    // 波形の描画
-    ctx.beginPath();
-    ctx.strokeStyle = '#4dabf5';
-    ctx.lineWidth = 1.5;
-    
-    // 波形の中央線（0dBの位置）
-    const centerY = (height / dpr) / 2;
-    
-    for (let i = 0; i < dataPoints; i++) {
-      const x = i;
-      const dataIndex = Math.floor(i * step);
-      // 波形データは0-1の範囲を想定
-      const amplitude = waveformData[dataIndex] * ((height / dpr) / 2);
-      
-      if (i === 0) {
-        ctx.moveTo(x, centerY - amplitude);
-      } else {
-        ctx.lineTo(x, centerY - amplitude);
-      }
-    }
-    
-    // 中央線から下の波形を描画
-    for (let i = dataPoints - 1; i >= 0; i--) {
-      const x = i;
-      const dataIndex = Math.floor(i * step);
-      // 波形データは0-1の範囲を想定
-      const amplitude = waveformData[dataIndex] * ((height / dpr) / 2);
-      
-      ctx.lineTo(x, centerY + amplitude);
-    }
-    
-    ctx.closePath();
-    ctx.fillStyle = 'rgba(33, 150, 243, 0.1)';
-    ctx.fill();
-    ctx.stroke();
-    
-    // 現在位置を描画
-    if (currentTime !== undefined) {
-      const currentX = (currentTime / duration) * displayWidth;
-      
-      ctx.beginPath();
-      ctx.strokeStyle = '#4caf50'; // success color
-      ctx.lineWidth = 2;
-      ctx.moveTo(currentX, 0);
-      ctx.lineTo(currentX, height / dpr);
-      ctx.stroke();
-    }
-    
-    ctx.restore();
-  }, [waveformData, selectedMedia, inPoint, outPoint, currentTime]);
 
   // 波形をクリックしたときのシーク処理
   const handleCanvasClick = useCallback((event: React.MouseEvent<HTMLCanvasElement>) => {
