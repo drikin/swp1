@@ -329,6 +329,10 @@ try {
       console.log(`メディアパスからタスクID取得: ${mediaPath}, タイプ: ${taskType}`);
       return ipcRenderer.invoke('get-task-id-by-media-path', mediaPath, taskType);
     },
+    getTaskList: () => {
+      console.log('タスク一覧取得リクエスト');
+      return ipcRenderer.invoke('get-task-list');
+    },
     
     // 波形データ関連メソッド
     getWaveformData: (taskId) => {

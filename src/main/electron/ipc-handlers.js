@@ -5,13 +5,16 @@
 const { ipcMain, app } = require('electron');
 const { 
   openFileDialog, 
-  openDirectoryDialog 
+  openDirectoryDialog, 
+  getDesktopPath 
 } = require('./file-operations');
 const ffmpegServiceManager = require('../ffmpeg-service-manager');
 const { 
-  getMainWindow 
+  getMainWindow, 
+  getTaskManager 
 } = require('./app-lifecycle');
 const { registerHandler } = require('../ipc-registry');
+const { checkVideoToolboxSupport } = require('./ffmpeg-helpers');
 
 /**
  * すべてのIPCハンドラーを登録
@@ -58,6 +61,22 @@ function registerIpcHandlers() {
   
   registerHandler(ipcMain, 'ffmpeg-task-cancel', async (_, taskId) => {
     return await ffmpegServiceManager.cancelTask(taskId);
+  });
+  
+  registerHandler(ipcMain, 'get-task-list', async () => {
+    const taskManager = getTaskManager();
+    if (!taskManager) {
+      console.error('タスクマネージャーが初期化されていません');
+      return { success: false, error: 'タスクマネージャーが利用できません', tasks: [] };
+    }
+    
+    try {
+      const tasks = taskManager.getAllTasks();
+      return { success: true, tasks: tasks.map(task => task.toJSON()) };
+    } catch (error) {
+      console.error('タスク一覧取得エラー:', error);
+      return { success: false, error: error.message, tasks: [] };
+    }
   });
   
   console.log('IPCハンドラーの登録が完了しました');
