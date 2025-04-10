@@ -758,3 +758,60 @@ select {
 .toggle-label input {
   margin-right: 5px;
 }
+
+/* ドラッグ&ドロップエリア（空の状態） */
+.empty-state {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  height: 100%;
+  color: #888;
+  text-align: center;
+  padding: 2rem;
+}
+
+.dropzone-container {
+  background-color: rgba(255, 255, 255, 0.03);
+  border: 2px dashed #444;
+  border-radius: 8px;
+  transition: all 0.2s ease;
+  cursor: pointer;
+}
+
+.dropzone-container:hover {
+  background-color: rgba(255, 255, 255, 0.05);
+  border-color: #666;
+}
+
+.panel.dragover .dropzone-container {
+  background-color: rgba(0, 120, 215, 0.1);
+  border-color: #0078d7;
+}
+
+.dropzone-icon {
+  color: #666;
+  margin-bottom: 1rem;
+  transition: color 0.2s ease;
+}
+
+.dropzone-container:hover .dropzone-icon {
+  color: #999;
+}
+
+.panel.dragover .dropzone-icon {
+  color: #0078d7;
+}
+
+.dropzone-title {
+  margin: 0 0 0.5rem 0;
+  font-size: 1rem;
+  font-weight: 500;
+  color: #ccc;
+}
+
+.dropzone-subtitle {
+  margin: 0;
+  font-size: 0.8rem;
+  color: #888;
+}

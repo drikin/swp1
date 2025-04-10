@@ -353,8 +353,15 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
       
       <div className="panel-content timeline-content">
         {mediaFiles.length === 0 ? (
-          <div className="empty-state">
-            <p>ファイルをドラッグ＆ドロップしてください。</p>
+          <div className="empty-state dropzone-container">
+            <div className="dropzone-icon">
+              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
+                <path d="M12 16L7 11H10V7H14V11H17L12 16Z" fill="currentColor" />
+                <path d="M5 18V19H19V18H5Z" fill="currentColor" />
+              </svg>
+            </div>
+            <h3 className="dropzone-title">メディアファイルをここにドロップ</h3>
+            <p className="dropzone-subtitle">または クリックしてファイルを選択</p>
           </div>
         ) : (
           <MediaList
