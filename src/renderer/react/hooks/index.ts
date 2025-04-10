@@ -9,5 +9,8 @@ export { useMedia as useMediaFiles } from '../contexts/MediaContext';
 export { useWaveform } from '../contexts/WaveformContext';
 export { useThumbnail } from '../contexts/ThumbnailContext';
 
-// その他のフック
-// ここに他のフックがあれば追加
+// キーボードショートカット関連フック
+export { useKeyboardShortcuts } from './keyboard';
+
+// ドラッグ＆ドロップ関連フック
+export { useFileDragDrop } from './dragdrop';

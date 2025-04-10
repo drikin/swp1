@@ -369,36 +369,3 @@ contextBridge.exposeInMainWorld('nodeCrypto', {
     });
   }
 });
-
-// タスク管理APIをレンダラープロセスに公開
-contextBridge.exposeInMainWorld('taskManager', {
-  // タスク一覧を取得
-  getTasks: () => ipcRenderer.invoke('get-task-list'),
-  
-  // タスクをキャンセル
-  cancelTask: (taskId) => ipcRenderer.invoke('cancel-task', taskId),
-  
-  // タスクの詳細情報を取得
-  getTaskById: (taskId) => ipcRenderer.invoke('get-task-status', taskId),
-  
-  // 新しいタスクを作成（新システムAPI）
-  createTask: (type, options) => ipcRenderer.invoke('create-task', type, options),
-  
-  // タスク結果を取得（新システムAPI）
-  getTaskResult: (taskId) => ipcRenderer.invoke('get-task-result', taskId),
-  
-  // メディアパスに関連するタスクを検索（新システムAPI）
-  findTasksByMedia: (mediaPath, type) => ipcRenderer.invoke('find-tasks-by-media', mediaPath, type),
-  
-  // タスク履歴をクリア（新システムAPI）
-  cleanTasksHistory: () => ipcRenderer.invoke('clean-tasks-history'),
-  
-  // タスク更新の購読
-  onTasksUpdated: (callback) => {
-    const subscription = (event, ...args) => callback(...args);
-    ipcRenderer.on('tasks-updated', subscription);
-    return () => {
-      ipcRenderer.removeListener('tasks-updated', subscription);
-    };
-  }
-});
