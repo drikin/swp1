@@ -166,9 +166,15 @@ const TrimPane: React.FC<TrimPaneProps> = ({
         <Typography variant="h6">波形編集</Typography>
       </Box>
       
-      <Box sx={{ display: 'flex', flexDirection: 'column', height: 'calc(100% - 40px)' }}>
+      <Box sx={{ 
+        display: 'flex', 
+        flexDirection: 'column', 
+        height: 'calc(100% - 40px)',
+        minHeight: 0,  
+        overflow: 'hidden' 
+      }}>
         {/* 波形表示エリア */}
-        <Box sx={{ flex: 1, minHeight: 0 }}>
+        <Box sx={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
           {waveformData && waveformData.length > 0 ? (
             <WaveformDisplay
               waveformData={waveformData}
@@ -191,7 +197,11 @@ const TrimPane: React.FC<TrimPaneProps> = ({
         </Box>
         
         {/* トリムコントロールエリア */}
-        <Box sx={{ borderTop: '1px solid rgba(0, 0, 0, 0.12)' }}>
+        <Box sx={{ 
+          borderTop: '1px solid rgba(0, 0, 0, 0.12)',
+          padding: '8px',
+          flexShrink: 0 
+        }}>
           <TrimControls
             trimStart={trimStart}
             trimEnd={trimEnd}

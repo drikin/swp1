@@ -209,9 +209,9 @@ const App: React.FC = () => {
       />
       
       {/* メインコンテンツとタスク管理のラッパー */}
-      <div className="main-content-wrapper">
+      <div className="main-content-wrapper" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
         {/* メインコンテンツ */}
-        <div className="app-content">
+        <div className="app-content" style={{ flex: 1, overflow: 'hidden' }}>
           {showExportSettings ? (
             <ExportSettings onClose={() => setShowExportSettings(false)} mediaFiles={mediaFiles} />
           ) : (
@@ -262,7 +262,7 @@ const App: React.FC = () => {
         </div>
         
         {/* タスク管理エリア: タスク詳細パネルとフッタータスクバー */}
-        <div className="task-management-area">
+        <div className="task-management-area" style={{ flexShrink: 0 }}>
           {/* タスク詳細パネル */}
           <TaskDetailsPanel
             open={showTaskDetails}

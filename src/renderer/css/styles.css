@@ -111,7 +111,7 @@ body {
   overflow: hidden;
   min-height: 0; /* フレックスボックス内での収縮を許可 */
   margin-bottom: 0; /* 余分なマージンを削除 */
-  max-height: calc(100% - 1px); /* ぎりぎりの高さに調整 */
+  max-height: calc(100% - 30px); /* タスク管理エリアの最小高さ分を引く */
   background-color: #1e1e1e; /* 黒いバーを防止するための背景色設定 */
 }
 
@@ -206,6 +206,9 @@ body {
   padding: 0.25rem;
   flex: 1;
   overflow: auto;
+  min-height: 0; /* フレックスボックス内での最小高さを0に設定し、適切に収縮できるようにする */
+  display: flex;
+  flex-direction: column;
 }
 
 /* ボタンスタイル */
@@ -456,6 +459,15 @@ button:active {
   display: flex;
   align-items: center;
   gap: 0.3rem;
+}
+
+/* タイムラインコンテンツ */
+.timeline-content {
+  display: flex;
+  flex-direction: column;
+  overflow: auto;
+  min-height: 0; /* フレックスコンテナ内での適切な収縮を可能にする */
+  padding-bottom: 0.5rem; /* 下部に余白を追加 */
 }
 
 /* トリミングコントロール */
