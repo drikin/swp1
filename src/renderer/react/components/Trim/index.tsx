@@ -1,5 +1,5 @@
 import React, { useState, useEffect, useCallback } from 'react';
-import { Box, Typography, CircularProgress } from '@mui/material';
+import { Box, Typography, CircularProgress, Paper, Divider, useTheme } from '@mui/material';
 import type { MediaFile } from '../../types';
 import { useWaveform } from '../../hooks';
 import WaveformDisplay from './WaveformDisplay';
@@ -126,55 +126,135 @@ const TrimPane: React.FC<TrimPaneProps> = ({
   // 選択されたメディアがない場合
   if (!selectedMedia) {
     return (
-      <Box className="panel" sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+      <Paper 
+        elevation={0}
+        sx={{ 
+          display: 'flex', 
+          flexDirection: 'column',
+          justifyContent: 'center', 
+          alignItems: 'center', 
+          height: '100%',
+          borderRadius: 1,
+          border: '1px solid',
+          borderColor: 'divider',
+          bgcolor: 'background.paper',
+        }}
+      >
         <Typography variant="body1" color="text.secondary">
           メディアが選択されていません
         </Typography>
-      </Box>
+        <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
+          タイムラインから素材を選択してください
+        </Typography>
+      </Paper>
     );
   }
   
   // 波形データ読み込み中
   if (isLoadingWaveform) {
     return (
-      <Box className="panel" sx={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
-        <CircularProgress size={40} />
+      <Paper 
+        elevation={0}
+        sx={{ 
+          display: 'flex', 
+          flexDirection: 'column', 
+          justifyContent: 'center', 
+          alignItems: 'center', 
+          height: '100%',
+          borderRadius: 1,
+          border: '1px solid',
+          borderColor: 'divider',
+          bgcolor: 'background.paper',
+        }}
+      >
+        <CircularProgress size={40} color="primary" />
         <Typography variant="body1" sx={{ mt: 2 }}>
           波形データを読み込み中...
         </Typography>
-      </Box>
+      </Paper>
     );
   }
   
   // 波形データ読み込みエラー
   if (waveformError) {
     return (
-      <Box className="panel" sx={{ display: 'flex', flexDirection: 'column', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+      <Paper 
+        elevation={0}
+        sx={{ 
+          display: 'flex', 
+          flexDirection: 'column', 
+          justifyContent: 'center', 
+          alignItems: 'center', 
+          height: '100%',
+          borderRadius: 1,
+          border: '1px solid',
+          borderColor: 'divider',
+          bgcolor: 'background.paper',
+        }}
+      >
         <Typography variant="body1" color="error">
           波形データの読み込みに失敗しました
         </Typography>
         <Typography variant="body2" color="text.secondary" sx={{ mt: 1 }}>
           {waveformError}
         </Typography>
-      </Box>
+      </Paper>
     );
   }
   
   return (
-    <Box className="panel" sx={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
-      <Box className="panel-header">
-        <Typography variant="h6">波形編集</Typography>
-      </Box>
-      
-      <Box sx={{ 
+    <Paper 
+      elevation={0}
+      sx={{ 
         display: 'flex', 
         flexDirection: 'column', 
-        height: 'calc(100% - 40px)',
-        minHeight: 0,  
-        overflow: 'hidden' 
-      }}>
+        height: '100%',
+        borderRadius: 1,
+        border: '1px solid',
+        borderColor: 'divider',
+        bgcolor: 'background.paper',
+        overflow: 'hidden',
+      }}
+    >
+      <Box 
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          p: 1,
+          borderBottom: 1,
+          borderColor: 'divider',
+          bgcolor: 'background.default',
+        }}
+      >
+        <Typography variant="h6" component="h2" sx={{ fontSize: '0.9rem', fontWeight: 'medium' }}>
+          波形編集
+        </Typography>
+        <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
+          {selectedMedia.name}
+        </Typography>
+      </Box>
+      
+      <Box 
+        sx={{ 
+          display: 'flex', 
+          flexDirection: 'column', 
+          height: 'calc(100% - 40px)',
+          minHeight: 0,  
+          overflow: 'hidden',
+        }}
+      >
         {/* 波形表示エリア */}
-        <Box sx={{ flex: 1, minHeight: 0, overflow: 'hidden' }}>
+        <Box 
+          sx={{ 
+            flex: 1, 
+            minHeight: 0, 
+            overflow: 'hidden',
+            bgcolor: 'background.default',
+            borderBottom: 1,
+            borderColor: 'divider',
+          }}
+        >
           {waveformData && waveformData.length > 0 ? (
             <WaveformDisplay
               waveformData={waveformData}
@@ -188,7 +268,13 @@ const TrimPane: React.FC<TrimPaneProps> = ({
               onSeek={handleSeek}
             />
           ) : (
-            <Box sx={{ display: 'flex', justifyContent: 'center', alignItems: 'center', height: '100%' }}>
+            <Box sx={{ 
+              display: 'flex', 
+              justifyContent: 'center', 
+              alignItems: 'center', 
+              height: '100%',
+              p: 2,
+            }}>
               <Typography variant="body2" color="text.secondary">
                 波形データがありません
               </Typography>
@@ -197,11 +283,12 @@ const TrimPane: React.FC<TrimPaneProps> = ({
         </Box>
         
         {/* トリムコントロールエリア */}
-        <Box sx={{ 
-          borderTop: '1px solid rgba(0, 0, 0, 0.12)',
-          padding: '8px',
-          flexShrink: 0 
-        }}>
+        <Box 
+          sx={{ 
+            bgcolor: 'background.paper',
+            flexShrink: 0,
+          }}
+        >
           <TrimControls
             trimStart={trimStart}
             trimEnd={trimEnd}
@@ -213,7 +300,7 @@ const TrimPane: React.FC<TrimPaneProps> = ({
           />
         </Box>
       </Box>
-    </Box>
+    </Paper>
   );
 };
 

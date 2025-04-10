@@ -1,7 +1,9 @@
 import React from 'react';
 import { createRoot } from 'react-dom/client';
+import { ThemeProvider, CssBaseline } from '@mui/material';
 import App from './components/App';
 import { AppProvider } from './contexts/AppContext';
+import theme from './theme';
 import './styles.css';
 
 // レンダリングのエントリーポイント
@@ -10,9 +12,12 @@ document.addEventListener('DOMContentLoaded', () => {
   if (rootElement) {
     const root = createRoot(rootElement);
     root.render(
-      <AppProvider>
-        <App />
-      </AppProvider>
+      <ThemeProvider theme={theme}>
+        <CssBaseline />
+        <AppProvider>
+          <App />
+        </AppProvider>
+      </ThemeProvider>
     );
   }
 });

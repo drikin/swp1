@@ -22,8 +22,8 @@ let workDirs = null;
 function createWindow() {
   // ブラウザウィンドウを作成
   mainWindow = new BrowserWindow({
-    width: 1280,
-    height: 720,
+    width: 1920,
+    height: 1080,
     webPreferences: {
       nodeIntegration: false, // Node.js統合を無効化
       contextIsolation: true, // コンテキスト分離を有効化

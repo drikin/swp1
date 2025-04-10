@@ -1,5 +1,18 @@
 import React, { useRef, useEffect, useState, forwardRef, useCallback } from 'react';
-import { Typography } from '@mui/material';
+import { 
+  Box, 
+  Typography, 
+  IconButton, 
+  Paper,
+  useTheme
+} from '@mui/material';
+import {
+  PlayArrow,
+  Pause,
+  Stop,
+  VolumeUp,
+  VolumeMute
+} from '@mui/icons-material';
 import Logger from '../utils/logger';
 
 interface VideoPlayerProps {
@@ -277,13 +290,76 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
   ]);
 
   return (
-    <div className="panel">
-      <div className="panel-header">
-        <Typography variant="body2" gutterBottom>プレビュー</Typography>
-        {media && <span className="media-title">{media.name}</span>}
-      </div>
-      <div className="panel-content">
-        <div className="video-player">
+    <Box 
+      className="panel"
+      sx={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
+        overflow: 'hidden',
+        bgcolor: 'background.paper',
+        border: '1px solid',
+        borderColor: 'divider',
+        borderRadius: 1,
+      }}
+    >
+      <Box 
+        className="panel-header"
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          p: 1,
+          borderBottom: 1,
+          borderColor: 'divider',
+          bgcolor: 'background.default',
+        }}
+      >
+        <Typography variant="h6" component="h2" sx={{ fontSize: '0.9rem', fontWeight: 'medium' }}>
+          プレビュー
+        </Typography>
+        {media && (
+          <Typography 
+            variant="body2" 
+            className="media-title"
+            sx={{
+              fontSize: '0.8rem',
+              color: 'text.secondary',
+              textOverflow: 'ellipsis',
+              overflow: 'hidden',
+              whiteSpace: 'nowrap',
+              maxWidth: '70%'
+            }}
+          >
+            {media.name}
+          </Typography>
+        )}
+      </Box>
+      
+      <Box 
+        className="panel-content"
+        sx={{
+          flex: 1,
+          display: 'flex',
+          flexDirection: 'column',
+          position: 'relative',
+          overflow: 'hidden',
+          bgcolor: 'background.default',
+        }}
+      >
+        <Box 
+          className="video-player"
+          sx={{
+            flex: 1,
+            display: 'flex',
+            flexDirection: 'column',
+            alignItems: 'center',
+            justifyContent: 'center',
+            position: 'relative',
+            overflow: 'hidden',
+            bgcolor: '#000',
+          }}
+        >
           {media ? (
             <video
               ref={videoRef}
@@ -298,28 +374,90 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
                   onTimeUpdate(videoRef.current.currentTime);
                 }
               }}
+              style={{
+                width: '100%',
+                height: '100%',
+                objectFit: 'contain'
+              }}
             />
           ) : (
-            <div className="empty-player">
-              素材が選択されていません
-            </div>
+            <Box 
+              className="empty-player"
+              sx={{
+                display: 'flex',
+                flexDirection: 'column',
+                alignItems: 'center',
+                justifyContent: 'center',
+                height: '100%',
+                width: '100%',
+                color: 'text.secondary',
+                bgcolor: 'background.paper',
+                borderRadius: 1,
+                p: 2
+              }}
+            >
+              <Typography variant="body1" sx={{ fontWeight: 'medium', mb: 1 }}>
+                素材が選択されていません
+              </Typography>
+              <Typography variant="body2" color="text.secondary">
+                タイムラインから素材を選択してください
+              </Typography>
+            </Box>
           )}
-        </div>
-        <div className="player-controls">
-          <button onClick={togglePlayback}>
-            <span role="img" aria-label={isPlaying ? "pause" : "play"}>
-              {isPlaying ? "⏸️" : "▶️"}
-            </span>
-          </button>
-          <button onClick={stopPlayback}>
-            <span role="img" aria-label="stop">⏹️</span>
-          </button>
-          {isPlaying && <span className="playback-indicator">
-            {isReversePlayback ? `◀ ${Math.abs(playbackRate)}x` : `${playbackRate}x ▶`}
-          </span>}
-        </div>
-      </div>
-    </div>
+        </Box>
+        
+        <Box 
+          className="player-controls"
+          sx={{
+            display: 'flex',
+            alignItems: 'center',
+            p: 1,
+            borderTop: '1px solid',
+            borderColor: 'divider',
+            bgcolor: 'background.paper',
+            zIndex: 10
+          }}
+        >
+          <IconButton 
+            onClick={togglePlayback}
+            size="small"
+            color="primary"
+            aria-label={isPlaying ? "一時停止" : "再生"}
+            sx={{ mr: 1 }}
+          >
+            {isPlaying ? <Pause /> : <PlayArrow />}
+          </IconButton>
+          
+          <IconButton 
+            onClick={stopPlayback}
+            size="small"
+            aria-label="停止"
+            sx={{ mr: 1 }}
+          >
+            <Stop />
+          </IconButton>
+          
+          {isPlaying && (
+            <Typography 
+              variant="caption" 
+              className="playback-indicator"
+              sx={{
+                display: 'inline-flex',
+                alignItems: 'center',
+                px: 1,
+                py: 0.5,
+                bgcolor: 'action.selected',
+                borderRadius: 1,
+                fontSize: '0.75rem',
+                fontWeight: 'medium'
+              }}
+            >
+              {isReversePlayback ? `◀ ${Math.abs(playbackRate)}x` : `${playbackRate}x ▶`}
+            </Typography>
+          )}
+        </Box>
+      </Box>
+    </Box>
   );
 });
 

@@ -1,5 +1,23 @@
 import React from 'react';
-import { Button, Box, Typography } from '@mui/material';
+import { 
+  Button, 
+  Box, 
+  Typography, 
+  ButtonGroup, 
+  IconButton, 
+  Divider, 
+  Tooltip,
+  Paper,
+  useTheme
+} from '@mui/material';
+import {
+  ContentCut,
+  PlayArrow,
+  SkipNext,
+  RestartAlt,
+  ArrowForward,
+  ArrowBack
+} from '@mui/icons-material';
 
 interface TrimControlsProps {
   trimStart: number | null;
@@ -44,45 +62,110 @@ const TrimControls: React.FC<TrimControlsProps> = ({
     : '設定されていません';
   
   return (
-    <Box sx={{ padding: 2, display: 'flex', flexDirection: 'column', gap: 2 }}>
-      <Typography variant="h6">トリム設定</Typography>
-      
-      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap' }}>
-        <Button 
-          variant="outlined" 
-          color="primary" 
-          onClick={handleSetTrimStart}
-          disabled={currentTime >= (trimEnd ?? Infinity)}
-        >
-          開始点をセット
-        </Button>
+    <Box sx={{ p: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
+      <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
+        <Typography variant="subtitle1" sx={{ fontWeight: 'medium', fontSize: '0.85rem' }}>
+          トリム設定
+        </Typography>
         
-        <Button 
-          variant="outlined" 
-          color="primary" 
-          onClick={handleSetTrimEnd}
-          disabled={currentTime <= (trimStart ?? -1)}
-        >
-          終了点をセット
-        </Button>
-        
-        <Button 
-          variant="outlined" 
-          color="secondary" 
-          onClick={handleResetTrim}
-          disabled={trimStart === null && trimEnd === null}
-        >
-          リセット
-        </Button>
-      </Box>
-      
-      <Box sx={{ mt: 1 }}>
-        <Typography variant="body2" color="text.secondary">
+        <Typography variant="caption" color="text.secondary">
           現在位置: {formatTime(currentTime)} / {formatTime(duration)}
         </Typography>
-        <Typography variant="body2" color="text.secondary">
-          トリム範囲: {trimRange}
+      </Box>
+      
+      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
+        <ButtonGroup variant="outlined" size="small">
+          <Tooltip title="開始点をセット">
+            <Button 
+              onClick={handleSetTrimStart}
+              disabled={currentTime >= (trimEnd ?? Infinity)}
+              startIcon={<ArrowBack fontSize="small" />}
+              sx={{ fontSize: '0.75rem' }}
+            >
+              IN点
+            </Button>
+          </Tooltip>
+          
+          <Tooltip title="終了点をセット">
+            <Button 
+              onClick={handleSetTrimEnd}
+              disabled={currentTime <= (trimStart ?? -1)}
+              endIcon={<ArrowForward fontSize="small" />}
+              sx={{ fontSize: '0.75rem' }}
+            >
+              OUT点
+            </Button>
+          </Tooltip>
+        </ButtonGroup>
+        
+        <Tooltip title="リセット">
+          <span>
+            <IconButton 
+              size="small"
+              color="secondary" 
+              onClick={handleResetTrim}
+              disabled={trimStart === null && trimEnd === null}
+            >
+              <RestartAlt fontSize="small" />
+            </IconButton>
+          </span>
+        </Tooltip>
+      </Box>
+      
+      <Box
+        sx={{
+          mt: 1,
+          p: 1,
+          borderRadius: 1,
+          bgcolor: 'action.hover',
+          display: 'flex',
+          flexDirection: 'column',
+          gap: 0.5
+        }}
+      >
+        <Typography 
+          variant="body2" 
+          color={trimStart !== null && trimEnd !== null ? 'primary' : 'text.secondary'}
+          sx={{ 
+            display: 'flex', 
+            justifyContent: 'space-between',
+            fontSize: '0.75rem',
+            fontWeight: trimStart !== null && trimEnd !== null ? 'medium' : 'regular'
+          }}
+        >
+          <span>トリム範囲:</span>
+          <span>{trimRange}</span>
         </Typography>
+        
+        {trimStart !== null && trimEnd !== null && (
+          <Typography 
+            variant="body2" 
+            color="text.secondary"
+            sx={{ 
+              display: 'flex', 
+              justifyContent: 'space-between',
+              fontSize: '0.75rem' 
+            }}
+          >
+            <span>開始:</span>
+            <span>{formatTime(trimStart)}</span>
+          </Typography>
+        )}
+        
+        {trimStart !== null && trimEnd !== null && (
+          <Typography 
+            variant="body2" 
+            color="text.secondary"
+            sx={{ 
+              display: 'flex', 
+              justifyContent: 'space-between',
+              fontSize: '0.75rem' 
+            }}
+          >
+            <span>終了:</span>
+            <span>{formatTime(trimEnd)}</span>
+          </Typography>
+        )}
       </Box>
     </Box>
   );

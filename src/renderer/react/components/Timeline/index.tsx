@@ -1,5 +1,7 @@
 import React, { useState, useRef, useEffect, useCallback, useMemo } from 'react';
 import { DropResult } from '@hello-pangea/dnd';
+import { Box, Paper, Typography, Button, IconButton, Divider, useTheme } from '@mui/material';
+import { Delete, SelectAll, Clear, CloudUpload, VolumeUp, VolumeOff } from '@mui/icons-material';
 import { useThumbnail, useTasks } from '../../hooks';
 import MediaList from './MediaList';
 
@@ -41,6 +43,7 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
   // フック
   const { getThumbnailForMedia } = useThumbnail();
   const { tasks, monitorTaskStatus } = useTasks();
+  const theme = useTheme();
 
   // 状態
   const [isDragging, setIsDragging] = useState(false);
@@ -326,43 +329,132 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
   };
 
   return (
-    <div 
+    <Box
       className={`panel ${isDragging ? 'dragover' : ''}`}
       ref={timelinePaneRef}
+      sx={{
+        display: 'flex',
+        flexDirection: 'column',
+        height: '100%',
+        overflow: 'hidden',
+        bgcolor: 'background.paper',
+        border: isDragging ? '2px dashed' : '1px solid',
+        borderColor: isDragging ? 'primary.main' : 'divider',
+        borderRadius: 1,
+      }}
     >
-      <div className="panel-header">
-        <h2>タイムライン</h2>
-        <div className="panel-controls">
+      <Box
+        className="panel-header"
+        sx={{
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'space-between',
+          p: 1,
+          borderBottom: 1,
+          borderColor: 'divider',
+          bgcolor: 'background.default',
+        }}
+      >
+        <Typography variant="h6" component="h2" sx={{ fontSize: '0.9rem', fontWeight: 'medium' }}>
+          タイムライン
+        </Typography>
+        <Box className="panel-controls" sx={{ display: 'flex', gap: 0.5 }}>
           {selectedMedias.length > 0 && (
             <>
-              <button className="panel-button" onClick={handleDeselectAll}>
+              <Button
+                variant="outlined"
+                size="small"
+                startIcon={<Clear fontSize="small" />}
+                onClick={handleDeselectAll}
+                sx={{ fontSize: '0.75rem', py: 0.5, px: 1 }}
+              >
                 選択解除
-              </button>
-              <button className="panel-button danger" onClick={handleDeleteSelected}>
+              </Button>
+              <Button
+                variant="outlined"
+                color="secondary"
+                size="small"
+                startIcon={<Delete fontSize="small" />}
+                onClick={handleDeleteSelected}
+                sx={{ fontSize: '0.75rem', py: 0.5, px: 1 }}
+              >
                 削除 ({selectedMedias.length})
-              </button>
+              </Button>
             </>
           )}
           {selectedMedias.length === 0 && mediaFiles.length > 0 && (
-            <button className="panel-button" onClick={handleSelectAll}>
+            <Button
+              variant="outlined"
+              size="small"
+              startIcon={<SelectAll fontSize="small" />}
+              onClick={handleSelectAll}
+              sx={{ fontSize: '0.75rem', py: 0.5, px: 1 }}
+            >
               全選択
-            </button>
+            </Button>
           )}
-        </div>
-      </div>
+        </Box>
+      </Box>
       
-      <div className="panel-content timeline-content">
+      <Box 
+        className="panel-content timeline-content"
+        sx={{
+          flex: 1,
+          overflow: 'auto',
+          p: mediaFiles.length === 0 ? 2 : 0,
+          display: 'flex',
+          flexDirection: 'column',
+        }}
+      >
         {mediaFiles.length === 0 ? (
-          <div className="empty-state dropzone-container">
-            <div className="dropzone-icon">
-              <svg width="48" height="48" viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg">
-                <path d="M12 16L7 11H10V7H14V11H17L12 16Z" fill="currentColor" />
-                <path d="M5 18V19H19V18H5Z" fill="currentColor" />
-              </svg>
-            </div>
-            <h3 className="dropzone-title">メディアファイルをここにドロップ</h3>
-            <p className="dropzone-subtitle">または クリックしてファイルを選択</p>
-          </div>
+          <Box 
+            className="empty-state dropzone-container"
+            sx={{
+              display: 'flex',
+              flexDirection: 'column',
+              alignItems: 'center',
+              justifyContent: 'center',
+              textAlign: 'center',
+              height: '100%',
+              border: '2px dashed',
+              borderColor: 'divider',
+              borderRadius: 1,
+              p: 3,
+              bgcolor: 'background.paper',
+              '&:hover': {
+                borderColor: 'primary.main',
+                bgcolor: 'action.hover',
+              }
+            }}
+          >
+            <CloudUpload 
+              sx={{ 
+                fontSize: '3rem',
+                color: 'text.secondary',
+                mb: 2
+              }}
+            />
+            <Typography 
+              variant="h6"
+              component="h3"
+              className="dropzone-title"
+              sx={{ 
+                fontWeight: 'medium',
+                fontSize: '1rem',
+                mb: 1
+              }}
+            >
+              メディアファイルをここにドロップ
+            </Typography>
+            <Typography 
+              variant="body2"
+              color="textSecondary"
+              className="dropzone-subtitle"
+              sx={{ fontSize: '0.8rem' }}
+            >
+              または クリックしてファイルを選択
+            </Typography>
+          </Box>
         ) : (
           <MediaList
             mediaFiles={mediaFiles}
@@ -379,8 +471,8 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
             onToggleLoudnessNormalization={handleToggleLoudnessNormalization}
           />
         )}
-      </div>
-    </div>
+      </Box>
+    </Box>
   );
 };
 

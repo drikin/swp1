@@ -4,6 +4,7 @@ import {
   PanelGroup, 
   PanelResizeHandle 
 } from 'react-resizable-panels';
+import { Box, Paper, Divider } from '@mui/material';
 import Header from './Header';
 import TimelinePane from './Timeline';
 import VideoPlayer, { VideoPlayerRef } from './VideoPlayer';
@@ -201,7 +202,18 @@ const App: React.FC = () => {
   );
 
   return (
-    <div className={`app-container ${isDragging ? 'dragover' : ''}`} ref={appRef}>
+    <Box 
+      className={`app-container ${isDragging ? 'dragover' : ''}`} 
+      ref={appRef}
+      sx={{ 
+        display: 'flex', 
+        flexDirection: 'column', 
+        height: '100vh', 
+        width: '100%',
+        position: 'relative',
+        overflow: 'hidden'
+      }}
+    >
       {/* ヘッダー */}
       <Header
         onAddFiles={handleAddFiles}
@@ -209,13 +221,35 @@ const App: React.FC = () => {
       />
       
       {/* メインコンテンツとタスク管理のラッパー */}
-      <div className="main-content-wrapper" style={{ display: 'flex', flexDirection: 'column', height: '100%' }}>
+      <Box 
+        className="main-content-wrapper"
+        sx={{ 
+          display: 'flex', 
+          flexDirection: 'column', 
+          flex: 1, 
+          overflow: 'hidden', 
+          position: 'relative',
+          bgcolor: 'background.default' // MUIのテーマカラーを使用
+        }}
+      >
         {/* メインコンテンツ */}
-        <div className="app-content" style={{ flex: 1, overflow: 'hidden' }}>
+        <Box 
+          className="app-content"
+          sx={{ 
+            flex: 1, 
+            display: 'flex', 
+            flexDirection: 'column', 
+            overflow: 'hidden',
+            minHeight: 0,
+            marginBottom: 0,
+            maxHeight: 'calc(100% - 30px)', // タスク管理エリアの高さを差し引く
+            bgcolor: 'background.default'
+          }}
+        >
           {showExportSettings ? (
             <ExportSettings onClose={() => setShowExportSettings(false)} mediaFiles={mediaFiles} />
           ) : (
-            <PanelGroup direction="horizontal" style={{ height: '100%', overflow: 'hidden' }}>
+            <PanelGroup direction="horizontal" className="panel-group">
               {/* 左パネル: タイムライン */}
               <Panel defaultSize={25} minSize={15}>
                 <TimelinePane
@@ -234,7 +268,7 @@ const App: React.FC = () => {
               
               {/* 右パネル: プレーヤーとトリミングペイン */}
               <Panel defaultSize={75}>
-                <PanelGroup direction="vertical" style={{ height: '100%', overflow: 'hidden' }}>
+                <PanelGroup direction="vertical" className="panel-group">
                   {/* 上部: ビデオプレーヤー */}
                   <Panel defaultSize={70} minSize={50}>
                     <VideoPlayer
@@ -259,10 +293,25 @@ const App: React.FC = () => {
               </Panel>
             </PanelGroup>
           )}
-        </div>
+        </Box>
         
         {/* タスク管理エリア: タスク詳細パネルとフッタータスクバー */}
-        <div className="task-management-area" style={{ flexShrink: 0 }}>
+        <Box 
+          className="task-management-area"
+          sx={{ 
+            display: 'flex', 
+            flexDirection: 'column',
+            width: '100%',
+            zIndex: 100,
+            position: 'relative',
+            bgcolor: 'background.paper', // MUIのテーマカラーを使用
+            borderTop: 1,
+            borderColor: 'divider',
+            flexShrink: 0,
+            bottom: 0,
+            minHeight: '30px'
+          }}
+        >
           {/* タスク詳細パネル */}
           <TaskDetailsPanel
             open={showTaskDetails}
@@ -277,9 +326,9 @@ const App: React.FC = () => {
             totalDuration={totalDuration}
             isTaskDetailsOpen={showTaskDetails}
           />
-        </div>
-      </div>
-    </div>
+        </Box>
+      </Box>
+    </Box>
   );
 };
 

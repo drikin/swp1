@@ -1,5 +1,5 @@
 import React, { useRef, useEffect, useState } from 'react';
-import { Box, Typography } from '@mui/material';
+import { Box, Typography, useTheme } from '@mui/material';
 
 interface WaveformDisplayProps {
   waveformData: number[];
@@ -40,6 +40,23 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
     
+    const theme = useTheme();
+    const colors = theme.palette.mode === 'dark' 
+      ? { 
+          background: '#1e1e1e', 
+          waveform: '#4285f4', 
+          trimArea: 'rgba(0, 120, 215, 0.2)', 
+          playhead: '#ff5722', 
+          trimMarker: '#0078d7' 
+        } 
+      : { 
+          background: '#f0f0f0', 
+          waveform: '#0078d7', 
+          trimArea: 'rgba(0, 120, 215, 0.2)', 
+          playhead: '#d70040', 
+          trimMarker: '#0078d7' 
+        };
+    
     const dpr = window.devicePixelRatio || 1;
     const { width, height } = canvas.getBoundingClientRect();
     
@@ -58,19 +75,32 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
     const centerY = height / 2;
     
     // 波形の背景を描画
-    ctx.fillStyle = '#f0f0f0';
+    ctx.fillStyle = colors.background;
     ctx.fillRect(0, 0, width, height);
+    
+    // 時間の目盛りを描画
+    const gridInterval = Math.max(1, Math.floor(duration / 10)); // 10秒間隔で目盛りを表示
+    ctx.strokeStyle = 'rgba(128, 128, 128, 0.2)';
+    ctx.lineWidth = 1;
+    
+    for (let i = 0; i <= duration; i += gridInterval) {
+      const x = (i / duration) * width;
+      ctx.beginPath();
+      ctx.moveTo(x, 0);
+      ctx.lineTo(x, height);
+      ctx.stroke();
+    }
     
     // トリム範囲を色付きで表示
     if (trimStart !== null && trimEnd !== null) {
-      ctx.fillStyle = 'rgba(100, 149, 237, 0.2)';
+      ctx.fillStyle = colors.trimArea;
       const startX = (trimStart / duration) * width;
       const endX = (trimEnd / duration) * width;
       ctx.fillRect(startX, 0, endX - startX, height);
     }
     
     // 波形を描画
-    ctx.fillStyle = '#4285f4';
+    ctx.fillStyle = colors.waveform;
     for (let i = 0; i < waveformData.length; i++) {
       const x = i * barWidth;
       const barHeight = waveformData[i] * height * 0.8;
@@ -79,7 +109,7 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
     
     // 現在位置のマーカーを描画
     const currentX = (currentTime / duration) * width;
-    ctx.strokeStyle = '#ff5722';
+    ctx.strokeStyle = colors.playhead;
     ctx.lineWidth = 2;
     ctx.beginPath();
     ctx.moveTo(currentX, 0);
@@ -89,12 +119,12 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
     // トリムマーカーを描画
     if (trimStart !== null) {
       const trimStartX = (trimStart / duration) * width;
-      drawTrimMarker(ctx, trimStartX, height, '#2196f3');
+      drawTrimMarker(ctx, trimStartX, height, colors.trimMarker);
     }
     
     if (trimEnd !== null) {
       const trimEndX = (trimEnd / duration) * width;
-      drawTrimMarker(ctx, trimEndX, height, '#2196f3');
+      drawTrimMarker(ctx, trimEndX, height, colors.trimMarker);
     }
   }, [waveformData, duration, trimStart, trimEnd, currentTime]);
   
@@ -118,7 +148,7 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
     ctx.arc(x, height / 2, 8, 0, Math.PI * 2);
     ctx.fill();
   };
-  
+
   // マウスイベントハンドラー
   const handleMouseDown = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -193,7 +223,10 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
         width: '100%', 
         height: '100%', 
         position: 'relative',
-        userSelect: 'none'
+        userSelect: 'none',
+        bgcolor: 'background.default',
+        borderRadius: 1,
+        overflow: 'hidden'
       }}
     >
       <canvas
@@ -214,15 +247,19 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
         display: 'flex', 
         justifyContent: 'space-between', 
         position: 'absolute',
-        bottom: '5px',
-        left: '10px',
-        right: '10px',
-        pointerEvents: 'none'
+        bottom: '8px',
+        left: '12px',
+        right: '12px',
+        pointerEvents: 'none',
+        px: 1,
+        py: 0.5,
+        bgcolor: 'rgba(0, 0, 0, 0.5)',
+        borderRadius: 1,
       }}>
-        <Typography variant="caption" color="text.secondary">
+        <Typography variant="caption" sx={{ color: '#fff', fontWeight: 'medium', fontSize: '0.7rem' }}>
           {formatTime(0)}
         </Typography>
-        <Typography variant="caption" color="text.secondary">
+        <Typography variant="caption" sx={{ color: '#fff', fontWeight: 'medium', fontSize: '0.7rem' }}>
           {formatTime(duration)}
         </Typography>
       </Box>
@@ -230,11 +267,17 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
       {/* 現在の時間表示 */}
       <Box sx={{ 
         position: 'absolute',
-        top: '5px',
-        left: '10px',
-        pointerEvents: 'none'
+        top: '8px',
+        left: '12px',
+        pointerEvents: 'none',
+        px: 1,
+        py: 0.5,
+        bgcolor: 'rgba(0, 0, 0, 0.5)',
+        borderRadius: 1,
+        display: 'inline-flex',
+        alignItems: 'center',
       }}>
-        <Typography variant="caption" color="error">
+        <Typography variant="caption" sx={{ color: '#fff', fontWeight: 'medium', fontSize: '0.7rem' }}>
           {formatTime(currentTime)}
         </Typography>
       </Box>
@@ -243,11 +286,15 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
       {trimStart !== null && trimEnd !== null && (
         <Box sx={{ 
           position: 'absolute',
-          top: '5px',
-          right: '10px',
-          pointerEvents: 'none'
+          top: '8px',
+          right: '12px',
+          pointerEvents: 'none',
+          px: 1,
+          py: 0.5,
+          bgcolor: 'rgba(0, 120, 215, 0.7)',
+          borderRadius: 1,
         }}>
-          <Typography variant="caption" color="primary">
+          <Typography variant="caption" sx={{ color: '#fff', fontWeight: 'medium', fontSize: '0.7rem' }}>
             {formatTime(trimEnd - trimStart)}
           </Typography>
         </Box>
