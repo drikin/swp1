@@ -2,7 +2,7 @@
  * app-lifecycle.js
  * アプリケーションのライフサイクル（起動・終了）管理
  */
-const { app, BrowserWindow } = require('electron');
+const { app, BrowserWindow, protocol } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { ensureWorkDirectories } = require('./file-operations');
@@ -27,10 +27,14 @@ function createWindow() {
     webPreferences: {
       nodeIntegration: false, // Node.js統合を無効化
       contextIsolation: true, // コンテキスト分離を有効化
-      preload: path.join(__dirname, '../preload.js'),
-      webSecurity: false // ローカルファイルアクセスを許可
+      preload: path.resolve(__dirname, '../preload.js'), // 絶対パスを確実に解決
+      webSecurity: false // ローカルファイルアクセスを許可（開発環境用）
     }
   });
+
+  // プリロードスクリプトのパスを確認ログ出力
+  console.log('プリロードスクリプトパス:', path.resolve(__dirname, '../preload.js'));
+  console.log('プリロードスクリプトの存在確認:', fs.existsSync(path.resolve(__dirname, '../preload.js')));
 
   // index.htmlをロード
   mainWindow.loadFile(path.join(__dirname, '../../renderer/index.html'));
@@ -54,6 +58,19 @@ function createWindow() {
 async function initializeApp() {
   try {
     console.log('====== アプリケーション起動シーケンス開始 ======');
+    
+    // セキュアなファイルアクセスのためのプロトコル登録
+    protocol.registerFileProtocol('secure-file', (request, callback) => {
+      const url = new URL(request.url);
+      const filePath = decodeURIComponent(url.pathname);
+      try {
+        callback({ path: path.normalize(filePath) });
+      } catch (error) {
+        console.error('プロトコルハンドラエラー:', error);
+        callback({ error: -2 /* net::FAILED */ });
+      }
+    });
+    console.log('セキュアファイルプロトコルを登録しました');
     
     // 作業ディレクトリを確保
     workDirs = ensureWorkDirectories('Super Watarec', ['thumbnails']);

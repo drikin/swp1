@@ -1,14 +1,24 @@
+// プリロードスクリプト
 const { contextBridge, ipcRenderer } = require('electron');
 
 // デバッグログ
 console.log('Preload script executing...');
+
+// ファイルパスをsecure-fileプロトコルURLに変換する関数
+function pathToSecureFileUrl(filePath) {
+  if (!filePath) return '';
+  // 正規化されたパスを作成
+  const normalizedPath = filePath.replace(/\\/g, '/');
+  // secure-fileプロトコルURLを返す
+  return `secure-file://${normalizedPath}`;
+}
 
 // CSP設定を変更するためのメタタグを追加
 // データURLからの画像読み込みを許可する
 document.addEventListener('DOMContentLoaded', () => {
   const meta = document.createElement('meta');
   meta.httpEquiv = 'Content-Security-Policy';
-  meta.content = "default-src 'self'; img-src 'self' data: blob: file:; script-src 'self'; style-src 'self' 'unsafe-inline';";
+  meta.content = "default-src 'self'; img-src 'self' data: blob: file: secure-file:; script-src 'self'; style-src 'self' 'unsafe-inline';";
   document.head.appendChild(meta);
 });
 
@@ -85,9 +95,9 @@ try {
             // データの形式を確認
             const data = args[0];
             if (data && data.filePath && typeof data.filePath === 'string') {
-              // シンプルにfile://プロトコルを追加
+              // secure-fileプロトコルを追加
               console.log('サムネイルファイルパスを変換:', data.filePath);
-              data.filePath = `file://${data.filePath}`;
+              data.filePath = pathToSecureFileUrl(data.filePath);
             }
           }
           
@@ -147,7 +157,7 @@ try {
         // 単純な文字列（ファイルパス）の場合
         if (typeof result === 'string') {
           console.log('ファイルパスを返します:', result);
-          return `file://${result}`;
+          return pathToSecureFileUrl(result);
         }
         
         // ペンディング状態のタスクの場合
@@ -174,7 +184,7 @@ try {
                       if (taskResult.data && typeof taskResult.data === 'object') {
                         if (taskResult.data.filePath) {
                           console.log('タスク結果からファイルパスを取得:', taskResult.data.filePath);
-                          resolve(`file://${taskResult.data.filePath}`);
+                          resolve(pathToSecureFileUrl(taskResult.data.filePath));
                         } else {
                           console.error('タスク結果にfilePath属性がありません:', taskResult.data);
                           reject(new Error('タスク結果にファイルパスがありません'));
@@ -183,7 +193,7 @@ try {
                       // データが文字列の場合は直接使用（後方互換性）
                       else if (typeof taskResult.data === 'string') {
                         console.log('タスク結果が文字列です:', taskResult.data);
-                        resolve(`file://${taskResult.data}`);
+                        resolve(pathToSecureFileUrl(taskResult.data));
                       }
                       else {
                         console.error('無効なタスク結果データ形式:', taskResult.data);
