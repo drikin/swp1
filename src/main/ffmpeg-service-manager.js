@@ -409,10 +409,81 @@ class FFmpegServiceManager extends EventEmitter {
 
   /**
    * サービスのヘルスステータスをチェック
-   * @returns {Promise<boolean>} - サービスが健全に動作しているか
+   * @returns {Promise<object>} - サービスの情報（バージョンなど）
    */
-  checkHealth() {
-    return this._healthCheck();
+  async checkHealth() {
+    try {
+      const response = await axios.get(`${this.baseUrl}/health`);
+      return response.data;
+    } catch (error) {
+      throw new Error(`FFmpegサービスが応答しません: ${error.message}`);
+    }
+  }
+
+  /**
+   * ハードウェアアクセラレーション対応状況を確認
+   * @returns {Promise<boolean>} - ハードウェアアクセラレーションが利用可能かどうか
+   */
+  async checkHardwareAccel() {
+    try {
+      // ffmpegコマンドを直接実行して、サポートされているハードウェアアクセラレーションを確認
+      const { stdout } = await new Promise((resolve, reject) => {
+        exec('ffmpeg -hide_banner -loglevel error -hwaccels', (error, stdout, stderr) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve({ stdout, stderr });
+        });
+      });
+
+      // 結果を解析
+      console.log('HWアクセラレーション確認結果:', stdout);
+      
+      // macOSではVideoToolboxが一般的
+      const hasHardwareAccel = stdout.includes('videotoolbox') || 
+                              stdout.includes('cuda') || 
+                              stdout.includes('nvenc') ||
+                              stdout.includes('vaapi') ||
+                              stdout.includes('qsv');
+      
+      console.log(`ハードウェアアクセラレーション対応: ${hasHardwareAccel ? '有効' : '無効'}`);
+      return hasHardwareAccel;
+    } catch (error) {
+      console.error('ハードウェアアクセラレーション確認エラー:', error);
+      return false; // エラーの場合はfalseを返す
+    }
+  }
+
+  /**
+   * FFmpegのバージョン情報を取得
+   * @returns {Promise<string>} - FFmpegのバージョン文字列
+   */
+  async getFFmpegVersion() {
+    try {
+      // ffmpegコマンドを直接実行してバージョン情報を取得
+      const { stdout } = await new Promise((resolve, reject) => {
+        exec('ffmpeg -version', (error, stdout, stderr) => {
+          if (error) {
+            reject(error);
+            return;
+          }
+          resolve({ stdout, stderr });
+        });
+      });
+
+      // バージョン情報を抽出
+      const versionMatch = stdout.match(/ffmpeg version (\S+)/);
+      if (versionMatch && versionMatch[1]) {
+        console.log('FFmpegバージョン:', versionMatch[1]);
+        return versionMatch[1];
+      }
+      
+      return 'Unknown';
+    } catch (error) {
+      console.error('FFmpegバージョン取得エラー:', error);
+      return 'Error';
+    }
   }
 
   /**

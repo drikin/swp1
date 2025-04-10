@@ -38,8 +38,13 @@ function registerIpcHandlers() {
   registerHandler(ipcMain, 'check-ffmpeg', async () => {
     // FFmpegサービスのヘルスチェック
     try {
-      await ffmpegServiceManager.checkHealth();
-      return { success: true, version: 'Available' };
+      const healthInfo = await ffmpegServiceManager.checkHealth();
+      const hwAccel = await ffmpegServiceManager.checkHardwareAccel();
+      const ffmpegVersion = await ffmpegServiceManager.getFFmpegVersion();
+      return { 
+        success: true, 
+        version: `FFmpeg: ${ffmpegVersion || 'N/A'} (HW: ${hwAccel ? '有効' : '無効'})` 
+      };
     } catch (error) {
       return { success: false, error: error.message };
     }
