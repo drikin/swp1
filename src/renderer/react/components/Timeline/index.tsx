@@ -354,8 +354,7 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
       <div className="panel-content timeline-content">
         {mediaFiles.length === 0 ? (
           <div className="empty-state">
-            <p>タイムラインにファイルがありません</p>
-            <p className="drag-hint">ファイルをドラッグ＆ドロップ</p>
+            <p>ファイルをドラッグ＆ドロップしてください。</p>
           </div>
         ) : (
           <MediaList
