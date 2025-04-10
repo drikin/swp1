@@ -38,7 +38,8 @@ function registerIpcHandlers() {
   registerHandler(ipcMain, 'check-ffmpeg', async () => {
     // FFmpegサービスのヘルスチェック
     try {
-      const healthInfo = await ffmpegServiceManager.checkHealth();
+      // サービスの状態と機能を確認
+      await ffmpegServiceManager.checkHealth(); // サービスが応答するか確認するだけ
       const hwAccel = await ffmpegServiceManager.checkHardwareAccel();
       const ffmpegVersion = await ffmpegServiceManager.getFFmpegVersion();
       return { 
