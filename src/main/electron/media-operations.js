@@ -71,7 +71,7 @@ async function getMediaInfo(filePath) {
     
     return {
       success: true,
-      mediaInfo
+      ...mediaInfo  // mediaInfoの内容を直接トップレベルに展開
     };
   } catch (error) {
     console.error('メディア情報取得エラー:', error);

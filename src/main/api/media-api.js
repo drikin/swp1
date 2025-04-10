@@ -71,18 +71,45 @@ function registerMediaAPI(ipcMain) {
           try {
             const mediaInfo = JSON.parse(output);
             
-            // ファイル情報を追加
-            const stats = fs.statSync(mediaPath);
-            mediaInfo.file = {
-              path: mediaPath,
-              name: path.basename(mediaPath),
-              size: stats.size,
-              modified: stats.mtime
+            // ビデオストリームとオーディオストリームを取得
+            const videoStream = mediaInfo.streams.find(stream => stream.codec_type === 'video');
+            const audioStream = mediaInfo.streams.find(stream => stream.codec_type === 'audio');
+            
+            // フレームレートを安全に計算（evalを使わない）
+            const calculateFrameRate = (rateStr) => {
+              if (!rateStr) return null;
+              const parts = rateStr.split('/');
+              if (parts.length !== 2) return null;
+              const num = parseInt(parts[0], 10);
+              const den = parseInt(parts[1], 10);
+              return den === 0 ? null : num / den;
             };
             
+            // ファイル情報を追加
+            const stats = fs.statSync(mediaPath);
+            
+            // シンプルで直接的なレスポンス形式
             resolve({ 
-              success: true, 
-              mediaInfo 
+              success: true,
+              path: mediaPath,
+              name: path.basename(mediaPath),
+              format: mediaInfo.format.format_name,
+              duration: parseFloat(mediaInfo.format.duration) || 0,
+              size: stats.size,
+              bitrate: parseInt(mediaInfo.format.bit_rate, 10) || 0,
+              video: videoStream ? {
+                codec: videoStream.codec_name,
+                width: parseInt(videoStream.width, 10),
+                height: parseInt(videoStream.height, 10),
+                frameRate: calculateFrameRate(videoStream.r_frame_rate),
+                bitrate: videoStream.bit_rate ? parseInt(videoStream.bit_rate, 10) : null
+              } : null,
+              audio: audioStream ? {
+                codec: audioStream.codec_name,
+                channels: audioStream.channels,
+                sampleRate: parseInt(audioStream.sample_rate, 10),
+                bitrate: audioStream.bit_rate ? parseInt(audioStream.bit_rate, 10) : null
+              } : null
             });
           } catch (error) {
             reject(error);

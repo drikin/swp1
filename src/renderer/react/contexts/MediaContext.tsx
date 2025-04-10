@@ -132,7 +132,7 @@ export const MediaProvider: React.FC<{ children: React.ReactNode }> = ({ childre
           id: window.nodeCrypto.generateUUID(),
           path: filePath,
           name: fileName,
-          type: mediaInfo.type || 'unknown',
+          type: mediaInfo.format || 'unknown',
           size: mediaInfo.size || 0,
           duration: mediaInfo.duration || 0,
           trimStart: null,
