@@ -4,20 +4,10 @@
  */
 console.log('===== task-init.js が読み込まれました =====');
 const path = require('path');
-
-// 絶対パスの出力
-const corePath = path.join(__dirname, 'core');
-const tasksPath = path.join(__dirname, 'tasks');
-const servicesPath = path.join(__dirname, 'services');
-const apiPath = path.join(__dirname, 'api');
-
-console.log('モジュール解決パス:');
-console.log('- コアモジュールパス:', corePath);
-console.log('- タスクモジュールパス:', tasksPath);
-console.log('- サービスモジュールパス:', servicesPath);
-console.log('- APIモジュールパス:', apiPath);
-
-// モジュールのインポート
+const fs = require('fs');
+const { registerTaskAPI } = require(path.join(__dirname, 'api/task-api'));
+const { registerMediaAPI } = require(path.join(__dirname, 'api/media-api'));
+const { registerHandler } = require('./ipc-registry');
 const TaskRegistry = require(path.join(__dirname, 'core/task-registry'));
 const TaskManager = require(path.join(__dirname, 'core/task-manager'));
 const WaveformTask = require(path.join(__dirname, 'tasks/waveform-task'));
@@ -25,8 +15,6 @@ const LoudnessTask = require(path.join(__dirname, 'tasks/loudness-task'));
 const ThumbnailTask = require(path.join(__dirname, 'tasks/thumbnail-task'));
 const ffmpegService = require(path.join(__dirname, 'services/ffmpeg-service'));
 const storageService = require(path.join(__dirname, 'services/storage-service'));
-const { registerTaskAPI } = require(path.join(__dirname, 'api/task-api'));
-const { registerMediaAPI } = require(path.join(__dirname, 'api/media-api'));
 const { app, BrowserWindow, ipcMain } = require('electron');
 
 /**
@@ -50,30 +38,13 @@ function initializeTaskSystem(ipcMain) {
     console.log('タスクタイプを登録中...');
     registerTaskTypes(taskRegistry);
     
-    // APIの登録（安全なハンドラ登録を行うように修正）
+    // APIの登録
     console.log('APIを登録中...');
     
-    // セーフハンドラ登録関数を作成
-    const safeRegisterHandler = (channel, handler) => {
-      try {
-        // 既存のハンドラを上書きするため、一旦削除を試みる
-        try {
-          ipcMain.removeHandler(channel);
-          console.log(`既存の ${channel} ハンドラを削除しました`);
-        } catch (error) {
-          // ハンドラが存在しない場合のエラーは無視
-        }
-        
-        // 新しいハンドラを登録
-        ipcMain.handle(channel, handler);
-        console.log(`${channel} ハンドラを登録しました`);
-      } catch (error) {
-        console.error(`${channel} ハンドラの登録中にエラーが発生しました:`, error);
-      }
-    };
-    
     // セーフハンドラ登録関数をタスクマネージャーに設定
-    taskManager.safeRegisterHandler = safeRegisterHandler;
+    taskManager.safeRegisterHandler = (channel, handler) => {
+      return registerHandler(ipcMain, channel, handler);
+    };
     
     // APIの登録
     registerTaskAPI(ipcMain, taskManager);

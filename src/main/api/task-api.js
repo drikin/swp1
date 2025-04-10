@@ -6,6 +6,9 @@
 const fs = require('fs');
 const path = require('path');
 
+// 共通のハンドラーレジストリをインポート
+const { registerHandler } = require('../ipc-registry');
+
 /**
  * タスク関連のAPIハンドラを登録
  * @param {Electron.IpcMain} ipcMain - Electron IPC Mainオブジェクト

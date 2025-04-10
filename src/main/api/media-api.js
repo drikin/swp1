@@ -5,30 +5,16 @@
 const fs = require('fs');
 const path = require('path');
 const { spawn } = require('child_process');
+const { registerHandler } = require('../ipc-registry');
 
 /**
  * メディア関連のAPIハンドラを登録
  * @param {Electron.IpcMain} ipcMain - Electron IPC Mainオブジェクト
  */
 function registerMediaAPI(ipcMain) {
-  // ハンドラが既に登録されていないか確認するヘルパー関数
+  // ハンドラ登録のラッパー関数
   const safeRegisterHandler = (channel, handler) => {
-    try {
-      // 既存のハンドラを上書きするため、一旦削除を試みる
-      // 存在しない場合はエラーがスローされるが無視する
-      try {
-        ipcMain.removeHandler(channel);
-        console.log(`既存の ${channel} ハンドラを削除しました`);
-      } catch (error) {
-        // ハンドラが存在しない場合のエラーは無視
-      }
-      
-      // 新しいハンドラを登録
-      ipcMain.handle(channel, handler);
-      console.log(`${channel} ハンドラを登録しました`);
-    } catch (error) {
-      console.error(`${channel} ハンドラの登録に失敗しました:`, error);
-    }
+    return registerHandler(ipcMain, channel, handler);
   };
 
   // メディアファイル情報の取得
