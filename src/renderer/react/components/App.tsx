@@ -5,7 +5,7 @@ import {
   PanelResizeHandle 
 } from 'react-resizable-panels';
 import Header from './Header';
-import TimelinePane from './TimelinePane';
+import TimelinePane from './Timeline';
 import VideoPlayer, { VideoPlayerRef } from './VideoPlayer';
 import TrimPane from './TrimPane';
 import ExportSettings from './ExportSettings';
