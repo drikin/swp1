@@ -43,13 +43,12 @@ export const WaveformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
     }
 
     try {
-      Logger.debug('WaveformContext', '波形抽出: レスポンス', {
-        type: typeof response,
-        response
+      Logger.debug('WaveformContext', '波形抽出: レスポンスタイプ', {
+        type: typeof response
       });
 
       // 1. タスクID経由で取得した場合: {data: {waveform: number[]}}
-      if (response.data && Array.isArray(response.data.waveform)) {
+      if (response.data?.waveform && Array.isArray(response.data.waveform)) {
         Logger.debug('WaveformContext', '波形抽出: タスクデータから波形を抽出', {
           length: response.data.waveform.length
         });
@@ -81,14 +80,14 @@ export const WaveformProvider: React.FC<{ children: React.ReactNode }> = ({ chil
       }
 
       // 5. ネストされたデータ構造: {data: {data: number[]}}
-      if (response.data && response.data.data && Array.isArray(response.data.data)) {
+      if (response.data?.data && Array.isArray(response.data.data)) {
         Logger.debug('WaveformContext', '波形抽出: ネストされたデータから波形を抽出', {
           length: response.data.data.length
         });
         return response.data.data;
       }
 
-      Logger.error('WaveformContext', '波形抽出: 未知のデータ構造', response);
+      Logger.error('WaveformContext', '波形抽出: 未知のデータ構造');
       return null;
     } catch (error) {
       Logger.error('WaveformContext', '波形データ抽出エラー', error);

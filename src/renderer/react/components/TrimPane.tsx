@@ -15,7 +15,6 @@ interface TrimPaneProps {
 interface TaskStatusResponse {
   id: string;
   status: "error" | "pending" | "processing" | "completed" | "cancelled";
-  progress: number;
   type: string;
   task?: {
     status: "error" | "pending" | "processing" | "completed" | "cancelled";
@@ -28,8 +27,6 @@ interface WaveformDataResponse {
   data?: {
     waveform?: number[];
   } | number[];
-  waveform?: number[];
-  taskId?: string;
 }
 
 interface TaskIdByMediaPathResponse {
@@ -59,18 +56,15 @@ const TrimPane: React.FC<TrimPaneProps> = ({
     waveformData,
     isLoadingWaveform, 
     error: waveformError,
-    generateWaveform: generateWaveformFromContext,
     getWaveformForMedia
   } = useWaveform();
   
   const [inPoint, setInPoint] = useState<number | null>(null);
   const [outPoint, setOutPoint] = useState<number | null>(null);
   const [error, setError] = useState<string | null>(null);
-  const [taskRequestId, setTaskRequestId] = useState<string | null>(null);
   const waveformCanvasRef = useRef<HTMLCanvasElement>(null);
   const animationFrameId = useRef<number | null>(null);
   const isInitialRender = useRef(true);
-  const [dimensionsLoaded, setDimensionsLoaded] = useState(false);
 
   const displayError = error || waveformError;
   
@@ -120,34 +114,12 @@ const TrimPane: React.FC<TrimPaneProps> = ({
       const taskId = await getWaveformForMedia(selectedMedia);
       if (taskId) {
         Logger.debug('TrimPane', '波形データ取得タスク登録完了', { taskId });
-        setTaskRequestId(taskId);
       }
     } catch (err) {
       Logger.error('TrimPane', '波形データ取得エラー', err);
       setError('波形データの取得に失敗しました');
     }
   }, [selectedMedia, getWaveformForMedia]);
-
-  // 波形データを生成する処理
-  const handleGenerateWaveform = useCallback(async () => {
-    if (!selectedMedia || !selectedMedia.path) return;
-    
-    try {
-      setError(null);
-      Logger.info('TrimPane', '波形データ生成開始', { path: selectedMedia.path });
-      // MediaFileではなくファイルパス文字列を渡す
-      const result = await generateWaveformFromContext(selectedMedia.path);
-      if (result) {
-        Logger.debug('TrimPane', '波形データ生成リクエスト成功', { taskId: result });
-        setTaskRequestId(result);
-      } else {
-        throw new Error('波形データ生成に失敗しました');
-      }
-    } catch (err) {
-      Logger.error('TrimPane', '波形データ生成エラー', err);
-      setError('波形データの生成に失敗しました');
-    }
-  }, [selectedMedia, generateWaveformFromContext]);
 
   // IN点を設定
   const handleSetInPoint = useCallback(() => {
@@ -260,9 +232,9 @@ const TrimPane: React.FC<TrimPaneProps> = ({
             variant="outlined" 
             color="error" 
             size="small"
-            onClick={handleGenerateWaveform}
+            onClick={handleFetchWaveform}
           >
-            波形を再生成
+            波形を再取得
           </Button>
         </Box>
       );
@@ -284,9 +256,9 @@ const TrimPane: React.FC<TrimPaneProps> = ({
           <Button 
             variant="outlined" 
             size="small"
-            onClick={handleGenerateWaveform}
+            onClick={handleFetchWaveform}
           >
-            波形を生成
+            波形を取得
           </Button>
         </Box>
       );
@@ -332,7 +304,7 @@ const TrimPane: React.FC<TrimPaneProps> = ({
         }
       </Box>
     );
-  }, [selectedMedia, isLoadingWaveform, displayError, waveformData, handleGenerateWaveform, inPoint, outPoint]);
+  }, [selectedMedia, isLoadingWaveform, displayError, waveformData, handleFetchWaveform, inPoint, outPoint]);
 
   // 波形データと選択範囲を描画
   useEffect(() => {
@@ -356,28 +328,28 @@ const TrimPane: React.FC<TrimPaneProps> = ({
     drawCanvas();
   }, [waveformData, selectedMedia, inPoint, outPoint, currentTime]);
   
-  // キャンバスのサイズを親要素に合わせる
+  // キャンバスのサイズを設定
   const resizeCanvas = useCallback(() => {
     const canvas = waveformCanvasRef.current;
     const container = canvas?.parentElement;
     
-    if (canvas && container) {
-      // デバイスピクセル比を考慮したキャンバスサイズ設定
-      const dpr = window.devicePixelRatio || 1;
-      canvas.width = container.clientWidth * dpr;
-      canvas.height = container.clientHeight * dpr;
-      
-      // CSSでの見た目のサイズ
-      canvas.style.width = `${container.clientWidth}px`;
-      canvas.style.height = `${container.clientHeight}px`;
-      
-      setDimensionsLoaded(true);
-      // drawWaveformを安全に呼び出し
-      if (waveformData && waveformData.length > 0 && selectedMedia) {
-        drawWaveform();
-      }
-      Logger.debug('TrimPane', 'キャンバスサイズ更新', { width: canvas.width, height: canvas.height });
+    if (!canvas || !container) return;
+    
+    // デバイスピクセル比を取得してHiDPIディスプレイに対応
+    const dpr = window.devicePixelRatio || 1;
+    
+    // コンテナのサイズに合わせる
+    canvas.width = container.clientWidth * dpr;
+    canvas.height = container.clientHeight * dpr;
+    canvas.style.width = `${container.clientWidth}px`;
+    canvas.style.height = `${container.clientHeight}px`;
+    
+    // drawWaveformを安全に呼び出し
+    if (waveformData && waveformData.length > 0 && selectedMedia) {
+      drawWaveform();
     }
+    
+    Logger.debug('TrimPane', 'キャンバスサイズ更新', { width: canvas.width, height: canvas.height });
   }, [drawWaveform, waveformData, selectedMedia]);
 
   // 波形を描画する関数

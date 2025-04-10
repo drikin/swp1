@@ -1,6 +1,4 @@
 import React, { createContext, useContext, useState, useEffect, useCallback } from 'react';
-// uuid パッケージの代わりにプリロードスクリプトの nodeCrypto を使用
-// import { v4 as uuidv4 } from 'uuid';
 import { MediaFile, MediaFileWithTaskIds, MediaContextState, MediaContextActions, MediaContextValue } from '../types/media';
 import { useWaveform, useThumbnail } from '../hooks';
 

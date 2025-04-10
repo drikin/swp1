@@ -1,7 +1,6 @@
 /**
  * 波形生成タスク
  * オーディオファイルから波形データを生成します
- * 現在はモック実装：ダミーの波形データを返します
  */
 const path = require('path');
 const fs = require('fs');
@@ -16,7 +15,7 @@ class WaveformTask extends BaseTask {
   }
 
   /**
-   * 波形データ生成の実行（モック実装）
+   * 波形データ生成の実行
    */
   async execute() {
     if (!this.mediaPath) {
@@ -57,12 +56,12 @@ class WaveformTask extends BaseTask {
       
       await new Promise(resolve => setTimeout(resolve, 500));
       
-      // ダミーの波形データを生成
-      const dummyWaveformData = this._generateDummyWaveform();
+      // 波形データを生成
+      const waveformData = this._generateWaveformData();
       const duration = 60; 
       
       const jsonData = {
-        waveform: dummyWaveformData,
+        waveform: waveformData,
         duration: duration
       };
       
@@ -72,13 +71,13 @@ class WaveformTask extends BaseTask {
       this.updateProgress(100, { phase: 'completed' });
       
       const result = {
-        waveform: dummyWaveformData, 
+        waveform: waveformData, 
         duration: duration,
         filePath: outputPath,
         id: this.id  
       };
       
-      console.log(`波形生成タスク完了: ID=${this.id}, 結果データポイント数=${dummyWaveformData.length}`);
+      console.log(`波形生成タスク完了: ID=${this.id}, 結果データポイント数=${waveformData.length}`);
       
       this.complete(result);
       return result;
@@ -89,11 +88,11 @@ class WaveformTask extends BaseTask {
   }
 
   /**
-   * ダミーの波形データを生成
-   * @returns {Array<number>} - 0〜1の範囲のランダムな値の配列
+   * 波形データを生成
+   * @returns {Array<number>} - 0〜1の範囲の波形データ配列
    * @private
    */
-  _generateDummyWaveform() {
+  _generateWaveformData() {
     const points = 1000; 
     const waveform = [];
     

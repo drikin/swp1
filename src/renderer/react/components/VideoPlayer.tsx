@@ -33,7 +33,6 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
   const [isPlaying, setIsPlaying] = useState(false);
   const [playbackRate, setPlaybackRate] = useState(1);
   const [isReversePlayback, setIsReversePlayback] = useState(false);
-  const [isMuted, setIsMuted] = useState(false);
   const reverseIntervalRef = useRef<number | null>(null);
 
   // メディアが変更されたときにビデオソースを更新
@@ -241,7 +240,6 @@ const VideoPlayer = forwardRef<VideoPlayerRef, VideoPlayerProps>(({
     if (!videoElement) return;
 
     videoElement.muted = !videoElement.muted;
-    setIsMuted(videoElement.muted);
     Logger.debug('VideoPlayer', 'ミュート切替', { muted: videoElement.muted });
   }, []);
 
