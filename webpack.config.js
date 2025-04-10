@@ -56,12 +56,7 @@ module.exports = {
   },
   plugins: [
     new CopyWebpackPlugin({
-      patterns: [
-        {
-          from: path.resolve(__dirname, 'src/renderer/react/styles.css'),
-          to: path.resolve(__dirname, 'src/renderer/css/styles.css')
-        }
-      ]
+      patterns: []
     })
   ]
 };
