@@ -56,7 +56,12 @@ module.exports = {
   },
   plugins: [
     new CopyWebpackPlugin({
-      patterns: []
+      patterns: [
+        {
+          from: 'src/renderer/index.html',
+          to: './'
+        }
+      ]
     })
   ]
 };
