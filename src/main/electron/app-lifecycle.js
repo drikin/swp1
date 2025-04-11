@@ -6,9 +6,9 @@ const { app, BrowserWindow, protocol } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { ensureWorkDirectories } = require('./file-operations');
-const { getFFmpegService } = require('../services/ffmpeg/index');
+const { getFFmpegService, utils } = require('../services/ffmpeg/index');
 const ffmpegService = getFFmpegService();
-const { checkVideoToolboxSupport } = require('./ffmpeg-helpers');
+const { checkVideoToolboxSupport } = utils;
 const { initializeTaskSystem } = require('../task-init');
 
 // グローバル参照

@@ -5,8 +5,8 @@
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
-const { runFFprobeCommand } = require('./ffmpeg-helpers');
-const { getFFmpegService } = require('../services/ffmpeg/index');
+const { getFFmpegService, utils } = require('../services/ffmpeg/index');
+const { runFFprobeCommand } = utils;
 const ffmpegService = getFFmpegService();
 
 /**

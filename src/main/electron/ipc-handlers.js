@@ -8,14 +8,14 @@ const {
   openDirectoryDialog, 
   getDesktopPath 
 } = require('./file-operations');
-const { getFFmpegService } = require('../services/ffmpeg/index');
+const { getFFmpegService, utils } = require('../services/ffmpeg/index');
 const ffmpegService = getFFmpegService();
 const { 
   getMainWindow, 
   getTaskManager 
 } = require('./app-lifecycle');
 const { registerHandler } = require('../ipc-registry');
-const { checkVideoToolboxSupport } = require('./ffmpeg-helpers');
+const { checkVideoToolboxSupport } = utils;
 
 /**
  * すべてのIPCハンドラーを登録

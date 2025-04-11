@@ -6,11 +6,12 @@ const path = require('path');
 const fs = require('fs');
 const { v4: uuidv4 } = require('uuid');
 const FFmpegTaskManager = require('./task-manager');
+const utils = require('./utils');
 const { 
   initializeWorkDirectories, 
   parseTimeString, 
   formatTimeString 
-} = require('./utils');
+} = utils;
 const { EventEmitter } = require('events');
 
 class FFmpegServiceCore extends EventEmitter {
@@ -21,6 +22,9 @@ class FFmpegServiceCore extends EventEmitter {
     
     // タスクマネージャーを初期化
     this.taskManager = new FFmpegTaskManager();
+    
+    // utilsモジュールをプロパティとして設定
+    this.utils = utils;
     
     // イベントを転送
     this._forwardEvents();
