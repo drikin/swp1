@@ -23,15 +23,13 @@ function register(ipcMain, taskManager) {
         };
       }
       
-      console.log(`波形データ生成リクエスト: ${mediaPath}`);
-      
       // すでに波形を生成するタスクが存在するかチェック
       const tasks = taskManager.getTasksByMedia(mediaPath, 'waveform');
       
       // 完了済みタスクがあれば再利用
       const completedTask = tasks.find(t => t.status === 'completed');
       if (completedTask) {
-        console.log('既存の波形タスクを返します:', completedTask.id);
+        console.log(`既存の波形タスクを再利用: ${completedTask.id}`);
         return { 
           success: true,
           taskId: completedTask.id
@@ -44,7 +42,7 @@ function register(ipcMain, taskManager) {
       );
       
       if (pendingTask) {
-        console.log('進行中の波形タスクを返します:', pendingTask.id);
+        console.log(`進行中の波形タスクを使用: ${pendingTask.id}`);
         return { 
           success: true,
           taskId: pendingTask.id
@@ -57,10 +55,8 @@ function register(ipcMain, taskManager) {
         mediaPath
       };
       
-      console.log('新しい波形タスクを作成します:', taskParams);
       const taskId = taskManager.createTask(taskParams);
-      
-      console.log('波形タスクを作成しました:', taskId);
+      console.log(`新しい波形タスクを作成: ${taskId}`);
       
       // タスクをpendingに設定して実行キューに入れる
       const task = taskManager.getTaskById(taskId);
@@ -115,38 +111,29 @@ function register(ipcMain, taskManager) {
       const waveformDir = path.join(baseDir, 'waveform');
       const waveformPath = path.join(waveformDir, `waveform_task_${taskId}.json`);
       
-      console.log(`波形データファイルの確認: ${waveformPath}`);
-      
       // ファイルが存在しない場合はタスク結果から直接取得
       if (!fs.existsSync(waveformPath)) {
-        console.error(`波形データファイルが見つかりません: ${waveformPath}`);
+        console.log(`波形データファイルが見つかりません: ${waveformPath}`);
         
         // タスク結果からwaveformデータを取得
         const taskResult = task.getResult();
-        
-        console.log('タスク結果データから波形を抽出します:', typeof taskResult);
         
         let waveformData = null;
         
         // さまざまなデータ形式に対応
         if (taskResult.data && taskResult.data.data && Array.isArray(taskResult.data.data.waveform)) {
-          console.log('形式1: taskResult.data.data.waveform');
           waveformData = taskResult.data.data.waveform;
           
         } else if (taskResult.data && Array.isArray(taskResult.data.waveform)) {
-          console.log('形式2: taskResult.data.waveform');
           waveformData = taskResult.data.waveform;
           
         } else if (Array.isArray(taskResult.waveform)) {
-          console.log('形式3: taskResult.waveform');
           waveformData = taskResult.waveform;
           
         } else if (taskResult.data && taskResult.data.waveform && Array.isArray(taskResult.data.waveform)) {
-          console.log('形式4: taskResult.data.waveform');
           waveformData = taskResult.data.waveform;
           
         } else {
-          console.log('形式不明: taskResultをそのまま返します');
           waveformData = taskResult.data;
         }
         
@@ -155,7 +142,6 @@ function register(ipcMain, taskManager) {
           return {
             success: true,
             taskId: task.id,
-            waveform: waveformData,  // 直接waveformプロパティとして設定
             data: {
               waveform: waveformData,
               duration: taskResult.data?.duration || 0
@@ -173,13 +159,11 @@ function register(ipcMain, taskManager) {
       const fileContent = fs.readFileSync(waveformPath, 'utf8');
       const waveformData = JSON.parse(fileContent);
       
-      console.log(`波形データを読み込みました: ${waveformPath} (${waveformData.waveform ? waveformData.waveform.length : 'なし'}ポイント)`);
+      console.log(`波形データを読み込みました: ${waveformPath}`);
       
       return {
         success: true,
         taskId: task.id,
-        waveform: waveformData.waveform || [],  // 直接waveformプロパティとして設定
-        duration: waveformData.duration || 0, 
         data: {
           waveform: waveformData.waveform || [],
           duration: waveformData.duration || 0
