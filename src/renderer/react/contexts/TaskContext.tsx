@@ -53,16 +53,51 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
       const response = await window.api.getTaskList();
       if (response && response.tasks) {
         // 型変換を明示的に行う
-        const typedTasks = response.tasks.map((task: any): Task => ({
-          id: task.id,
-          type: task.type,
-          status: task.status as TaskStatus,
-          progress: task.progress,
-          error: task.error,
-          createdAt: task.createdAt,
-          completedAt: task.completedAt,
-          data: task.data
-        }));
+        const typedTasks = response.tasks.map((task: any): Task => {
+          // 開始時間の処理 - createdAtがなければstartTimeを使用
+          const createdAt = task.createdAt || (task.startTime ? new Date(task.startTime).toISOString() : null);
+          
+          // 完了時間の処理
+          let completedAt = null;
+          if (task.status === 'completed' || task.status === 'cancelled' || task.status === 'error') {
+            // 優先順位: completedAt > data.endTime > endTime
+            if (task.completedAt) {
+              completedAt = task.completedAt;
+            } else if (task.data?.endTime) {
+              completedAt = new Date(task.data.endTime).toISOString();
+            } else if (task.endTime) {
+              completedAt = new Date(task.endTime).toISOString();
+            }
+            
+            // デバッグログ - 時間情報の確認
+            console.log(`タスク時間データ[${task.id}]:`, {
+              completedAt,
+              originalCompletedAt: task.completedAt,
+              dataEndTime: task.data?.endTime,
+              endTime: task.endTime
+            });
+          }
+          
+          // completedAtが設定されていれば、対応するendTimeも設定（これにより一貫性を確保）
+          let taskData = task.data || {};
+          if (completedAt && !taskData.endTime) {
+            taskData = {
+              ...taskData,
+              endTime: new Date(completedAt).getTime()
+            };
+          }
+          
+          return {
+            id: task.id,
+            type: task.type,
+            status: task.status as TaskStatus,
+            progress: task.progress,
+            error: task.error,
+            createdAt: createdAt,
+            completedAt: completedAt,
+            data: taskData
+          };
+        });
         
         // タスクステータスマップを更新
         const statusMap: Record<string, TaskStatus> = {};
@@ -308,16 +343,51 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
     const handleTasksUpdated = (data: { tasks: any[] }) => {
       if (data && Array.isArray(data.tasks)) {
         // 型変換を明示的に行う
-        const typedTasks = data.tasks.map((task: any): Task => ({
-          id: task.id,
-          type: task.type,
-          status: task.status as TaskStatus,
-          progress: task.progress,
-          error: task.error,
-          createdAt: task.createdAt,
-          completedAt: task.completedAt,
-          data: task.data
-        }));
+        const typedTasks = data.tasks.map((task: any): Task => {
+          // 開始時間の処理 - createdAtがなければstartTimeを使用
+          const createdAt = task.createdAt || (task.startTime ? new Date(task.startTime).toISOString() : null);
+          
+          // 完了時間の処理
+          let completedAt = null;
+          if (task.status === 'completed' || task.status === 'cancelled' || task.status === 'error') {
+            // 優先順位: completedAt > data.endTime > endTime
+            if (task.completedAt) {
+              completedAt = task.completedAt;
+            } else if (task.data?.endTime) {
+              completedAt = new Date(task.data.endTime).toISOString();
+            } else if (task.endTime) {
+              completedAt = new Date(task.endTime).toISOString();
+            }
+            
+            // デバッグログ - 時間情報の確認
+            console.log(`タスク時間データ[${task.id}]:`, {
+              completedAt,
+              originalCompletedAt: task.completedAt,
+              dataEndTime: task.data?.endTime,
+              endTime: task.endTime
+            });
+          }
+          
+          // completedAtが設定されていれば、対応するendTimeも設定（これにより一貫性を確保）
+          let taskData = task.data || {};
+          if (completedAt && !taskData.endTime) {
+            taskData = {
+              ...taskData,
+              endTime: new Date(completedAt).getTime()
+            };
+          }
+          
+          return {
+            id: task.id,
+            type: task.type,
+            status: task.status as TaskStatus,
+            progress: task.progress,
+            error: task.error,
+            createdAt: createdAt,
+            completedAt: completedAt,
+            data: taskData
+          };
+        });
         
         // タスクステータスマップも更新
         const statusMap: Record<string, TaskStatus> = {};

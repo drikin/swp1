@@ -49,15 +49,61 @@ const TaskItem: React.FC<TaskItemProps> = ({ task }) => {
   // タスクキャンセル関数をコンテキストから取得
   const { cancelTask } = useTasks();
   
-  // 経過時間の計算（実行中タスクは現在時刻との差）
+  // デバッグ用：タスクデータをコンソールに出力
+  console.log(`タスクデータ確認 [ID: ${task.id}]`, {
+    status: task.status,
+    createdAt: task.createdAt,
+    completedAt: task.completedAt,
+    endTime: task.data?.endTime,
+    endTimeFromData: task.data?.endTime ? new Date(task.data.endTime).toISOString() : '未設定',
+    dataKeys: task.data ? Object.keys(task.data) : 'データなし'
+  });
+  
+  // 経過時間の表示（タスク状態に関わらず一貫した表示にする）
   const getDuration = () => {
-    const start = new Date(task.createdAt).getTime();
-    const end = task.completedAt ? new Date(task.completedAt).getTime() : Date.now();
-    const durationMs = end - start;
+    // タスクが存在しない場合のエラーハンドリング
+    if (!task) {
+      return '00:00';
+    }
     
+    // 完了したタスクの場合の処理
+    if (task.status === 'completed' || task.status === 'cancelled' || task.status === 'error') {
+      // completedAtとcreatedAtの両方がある場合：実際の経過時間を計算
+      if (task.completedAt && task.createdAt) {
+        const start = new Date(task.createdAt).getTime();
+        const end = new Date(task.completedAt).getTime();
+        
+        if (!isNaN(start) && !isNaN(end) && end >= start) {
+          const durationMs = end - start;
+          return formatDuration(durationMs);
+        }
+      }
+      
+      // 時間データが不完全な場合は未計測と表示
+      return '未計測';
+    }
+    
+    // 進行中のタスクの場合の処理
+    if (task.createdAt) {
+      const start = new Date(task.createdAt).getTime();
+      if (!isNaN(start)) {
+        const end = Date.now();
+        const durationMs = end - start;
+        return formatDuration(durationMs);
+      }
+    }
+    
+    // それ以外のケース：未計測と表示
+    return '未計測';
+  };
+  
+  // 経過時間のフォーマット用ヘルパー関数
+  const formatDuration = (durationMs: number) => {
     // 秒数または分:秒形式で表示
     if (durationMs < 60000) {
-      return `${Math.floor(durationMs / 1000)}秒`;
+      // 秒数表示の場合、小数点第一位まで表示
+      const seconds = durationMs / 1000;
+      return `${seconds.toFixed(1)}秒`;
     } else {
       const minutes = Math.floor(durationMs / 60000);
       const seconds = Math.floor((durationMs % 60000) / 1000);

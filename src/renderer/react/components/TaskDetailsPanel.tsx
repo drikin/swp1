@@ -19,6 +19,16 @@ const TaskDetailsPanel: React.FC<TaskDetailsPanelProps> = ({ open, onClose }) =>
   // タスク情報をコンテキストから取得
   const { tasks = [] } = useTasks();
   
+  // デバッグ用：TaskContextから取得したタスクデータの確認
+  console.log('TaskDetailsPanel: タスク一覧データ', tasks.map(task => ({
+    id: task.id,
+    type: task.type,
+    status: task.status,
+    createdAt: task.createdAt,
+    completedAt: task.completedAt,
+    hasEndTime: task.data?.endTime ? true : false
+  })));
+  
   // アクティブなタスク数を計算
   const activeTaskCount = tasks.filter(
     task => task.status === 'pending' || task.status === 'processing'
