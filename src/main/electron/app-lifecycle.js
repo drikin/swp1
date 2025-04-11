@@ -5,7 +5,7 @@
 const { app, BrowserWindow, protocol } = require('electron');
 const path = require('path');
 const fs = require('fs');
-const { ensureWorkDirectories } = require('./file-operations');
+const storageService = require('../services/storage-service');
 const { getFFmpegService, utils } = require('../services/ffmpeg/index');
 const ffmpegService = getFFmpegService();
 const { checkVideoToolboxSupport } = utils;
@@ -74,7 +74,7 @@ async function initializeApp() {
     console.log('セキュアファイルプロトコルを登録しました');
     
     // 作業ディレクトリを確保
-    workDirs = ensureWorkDirectories('Super Watarec', ['thumbnails']);
+    workDirs = storageService.ensureWorkDirectories('Super Watarec', ['thumbnails']);
     console.log('作業ディレクトリの確認完了');
     
     // メインウィンドウを作成

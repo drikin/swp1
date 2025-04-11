@@ -5,6 +5,7 @@
 const fs = require('fs');
 const path = require('path');
 const { app } = require('electron');
+const os = require('os');
 
 class StorageService {
   constructor() {
@@ -275,6 +276,35 @@ class StorageService {
       console.error(`カテゴリの削除に失敗 (${category}):`, error);
       return 0;
     }
+  }
+
+  /**
+   * 作業ディレクトリを確保
+   * @param {string} baseName ベースディレクトリ名
+   * @param {Array<string>} subDirs 作成するサブディレクトリ名の配列
+   * @returns {Object} 作成されたディレクトリのパス情報
+   */
+  ensureWorkDirectories(baseName = 'Super Watarec', subDirs = []) {
+    const workDir = path.join(os.homedir(), baseName);
+    
+    // 作業ディレクトリを作成
+    if (!fs.existsSync(workDir)) {
+      fs.mkdirSync(workDir, { recursive: true });
+      console.log('作業ディレクトリを作成しました:', workDir);
+    }
+    
+    // サブディレクトリを作成
+    const paths = { root: workDir };
+    for (const dir of subDirs) {
+      const dirPath = path.join(workDir, dir);
+      if (!fs.existsSync(dirPath)) {
+        fs.mkdirSync(dirPath, { recursive: true });
+        console.log(`${dir}ディレクトリを作成しました:`, dirPath);
+      }
+      paths[dir] = dirPath;
+    }
+    
+    return paths;
   }
 }
 

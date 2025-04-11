@@ -7,7 +7,7 @@ const {
   openFileDialog, 
   openDirectoryDialog, 
   getDesktopPath 
-} = require('./file-operations');
+} = require('../services/dialog-service');
 const { getFFmpegService, utils } = require('../services/ffmpeg/index');
 const ffmpegService = getFFmpegService();
 const { 
