@@ -136,6 +136,9 @@ function setupTaskEvents(taskManager) {
   taskManager.eventEmitter.on('taskCompleted', (task) => {
     const window = BrowserWindow.getAllWindows()[0];
     if (window) {
+      // デバッグログ追加
+      console.log(`タスク完了イベント発生 [${task.id}] タイプ: ${task.type}, メディアパス: ${task.mediaPath}`);
+      
       window.webContents.send('task-completed', {
         taskId: task.id,
         type: task.type,
@@ -151,11 +154,24 @@ function setupTaskEvents(taskManager) {
           type: 'waveform'
         });
       } else if (task.type === 'loudness') {
-        window.webContents.send('loudness-measured', {
+        console.log(`==== ラウドネス測定イベント送信 [${task.id}] ====`);
+        console.log(`タスクタイプ: ${task.type}, メディアパス: ${typeof task.mediaPath === 'object' ? JSON.stringify(task.mediaPath) : task.mediaPath}`);
+        
+        // データの準備と確認
+        const eventData = {
           taskId: task.id,
           fileName: task.mediaPath,
           loudness: task.data
-        });
+        };
+        console.log('送信データ詳細:', JSON.stringify(eventData, null, 2));
+        
+        // 必ず送信が行われるようにtry-catchで囲む
+        try {
+          window.webContents.send('loudness-measured', eventData);
+          console.log('loudness-measuredイベント送信完了');
+        } catch (error) {
+          console.error('loudness-measuredイベント送信エラー:', error);
+        }
       } else if (task.type === 'thumbnail') {
         console.log('サムネイル生成完了:', task.id);
         console.log('タスク内容:', {

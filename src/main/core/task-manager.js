@@ -162,6 +162,7 @@ class TaskManager {
       // 依存していた子タスクをキャンセル
       if (this.taskChildren.has(task.id)) {
         const children = this.taskChildren.get(task.id);
+        
         children.forEach(childId => {
           const childTask = this.tasks.get(childId);
           if (childTask && (childTask.status === 'pending' || childTask.status === 'retry_pending')) {
@@ -351,6 +352,10 @@ class TaskManager {
     // タスク結果処理
     try {
       this.registry.handleTaskResult(task);
+      
+      // taskCompletedイベントを明示的に発行
+      console.log(`イベント発行: taskCompleted [${task.id}] タイプ: ${task.type}`);
+      this.eventEmitter.emit('taskCompleted', task);
     } catch (error) {
       console.error(`タスク結果処理エラー [${task.id}]:`, error);
     }

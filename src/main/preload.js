@@ -88,6 +88,9 @@ try {
       if (validEventChannels.includes(channel)) {
         // ラッパー関数を作成して、元のイベントデータを処理
         const subscription = (event, ...args) => {
+          // 詳細なイベントログを追加（全イベント共通）
+          console.log(`イベント受信 (${channel}): ${JSON.stringify(args[0])}`);
+
           // サムネイル生成イベントの詳細なログ出力
           if (channel === 'thumbnail-generated') {
             console.log('サムネイル生成イベント受信(preload):', JSON.stringify(args, null, 2));
@@ -101,8 +104,27 @@ try {
             }
           }
           
+          // ラウドネス測定イベントの詳細なログ出力
+          if (channel === 'loudness-measured') {
+            console.log('🔊 ラウドネス測定イベント受信(preload):', JSON.stringify(args, null, 2));
+            
+            // 形式を確認し必要なら加工
+            const data = args[0];
+            if (data && data.loudness) {
+              console.log('ラウドネスデータが存在します:', JSON.stringify(data.loudness, null, 2));
+            } else {
+              console.warn('❌ ラウドネスデータが不足しています');
+            }
+          }
+          
           // コールバック関数を呼び出す
-          callback(...args);
+          console.log(`コールバック関数を呼び出します: ${channel}`);
+          try {
+            callback(...args);
+            console.log(`コールバック関数呼び出し成功: ${channel}`);
+          } catch (error) {
+            console.error(`コールバック関数呼び出しエラー: ${channel}`, error);
+          }
         };
         
         ipcRenderer.on(channel, subscription);

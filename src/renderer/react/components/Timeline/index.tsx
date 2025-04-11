@@ -59,6 +59,89 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
   const timelinePaneRef = useRef<HTMLDivElement>(null);
 
   /**
+   * ラウドネス測定結果を処理する関数
+   */
+  const handleLoudnessMeasured = useCallback((result: any) => {
+    console.log('🔊 ラウドネス測定結果を受信:', JSON.stringify(result, null, 2));
+    
+    if (!result || !result.taskId || !result.loudness) {
+      console.error('❌ 無効なラウドネス測定結果:', result);
+      return;
+    }
+
+    // メディアIDの特定
+    const affectedMedia = mediaFiles.find(media => {
+      // media.idがタスクIDに含まれている場合や、
+      // ファイルパスが一致する場合などで関連付け
+      const mediaPath = media.filePath || media.path;
+      const resultPath = typeof result.fileName === 'object' ? result.fileName.path : result.fileName;
+      
+      return (
+        (result.taskId.includes(media.id)) || 
+        (mediaPath && resultPath && mediaPath === resultPath)
+      );
+    });
+
+    if (affectedMedia) {
+      console.log(`ラウドネス測定完了: メディア [${affectedMedia.id}] を更新します`);
+      
+      // 測定中フラグを解除
+      setMeasuringLoudness(prev => {
+        const newState = { ...prev };
+        delete newState[affectedMedia.id];
+        return newState;
+      });
+      
+      // エラーがあれば削除
+      setLoudnessErrors(prev => {
+        const newErrors = { ...prev };
+        delete newErrors[affectedMedia.id];
+        return newErrors;
+      });
+      
+      // メディア情報を更新
+      if (onUpdateMedia) {
+        console.log('メディア情報を更新:', {
+          mediaId: affectedMedia.id,
+          lufs: result.loudness.integrated_loudness,
+          lufsGain: result.loudness.true_peak
+        });
+        
+        onUpdateMedia(affectedMedia.id, {
+          lufs: result.loudness.integrated_loudness,
+          lufsGain: result.loudness.true_peak,
+          loudnessNormalization: true
+        });
+      }
+    } else {
+      console.warn('対応するメディアが見つかりません:', result);
+    }
+  }, [mediaFiles, onUpdateMedia]);
+
+  /**
+   * ラウドネス測定完了イベントのリスナー登録と解除
+   */
+  useEffect(() => {
+    console.log("🎧 ラウドネス測定イベントリスナーを登録します");
+    console.log("🔍 現在のmediaFiles:", mediaFiles.length, "件");
+    
+    // リスナー関数のラッパー（デバッグ用）
+    const loudnessMeasuredListener = (result: any) => {
+      console.log("📣 loudness-measured イベントを受信しました");
+      handleLoudnessMeasured(result);
+    };
+    
+    // ラウドネス測定完了イベントのリスナーを登録
+    window.api.on('loudness-measured', loudnessMeasuredListener);
+    
+    // コンポーネントのアンマウント時にリスナーを削除
+    return () => {
+      console.log("🛑 ラウドネス測定イベントリスナーを解除します");
+      window.api.off('loudness-measured', loudnessMeasuredListener);
+    };
+  }, [handleLoudnessMeasured]); // handleLoudnessMeasuredが変更されたときにリスナーを再登録
+
+  /**
    * メディアがドロップされたときの処理
    */
   const handleFileDrop = useCallback(async (filePaths: string[]) => {
@@ -151,9 +234,30 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
     }
     
     try {
-      const result: any = await window.api.invoke('create-task', 'measureLoudness', {
+      // デバッグ: メディア情報の構造を出力
+      console.log('手動ラウドネス測定 - メディア情報:', {
+        id: media.id,
+        name: media.name,
+        path: media.path,
+        filePath: media.filePath,
+        hasPath: 'path' in media,
+        hasFilePath: 'filePath' in media,
+        mediaKeys: Object.keys(media)
+      });
+      
+      // ファイルパスをmedia.filePathまたはmedia.pathから取得
+      const filePath = media.filePath || media.path;
+      
+      if (!filePath) {
+        throw new Error('メディアのファイルパスが見つかりません');
+      }
+      
+      // ファイルパスの存在をデバッグ出力
+      console.log(`使用するファイルパス: ${filePath}`);
+      
+      const result: any = await window.api.invoke('create-task', 'loudness', {
         mediaId: media.id,
-        filePath: media.path
+        mediaPath: filePath // filePathではなくmediaPathとして送信
       });
       
       if (!result?.taskId) {
@@ -243,7 +347,7 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
         
         console.log(`サムネイル取得処理開始 [${media.id}]`);
         let url = await getThumbnailForMedia(media);
-        console.log(`サムネイル取得結果 [${media.id}]:`, url);
+        console.log(`サムネイル取得結果 [${media.id}]: ${url}`);
         
         // URLでない場合（タスクIDが返された場合）、そのタスクが完了したURLを取得する
         if (url && (!url.startsWith('file://') && !url.startsWith('secure-file://'))) {
@@ -326,6 +430,115 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
   useEffect(() => {
     loadThumbnails();
   }, [mediaFiles, getThumbnailForMedia]);
+
+  /**
+   * 新しく追加されたメディアの自動ラウドネス測定
+   */
+  useEffect(() => {
+    const processNewMedias = async () => {
+      // メディアファイルがなければ処理しない
+      if (!mediaFiles.length || !onUpdateMedia) return;
+
+      console.log('新規メディアのラウドネス測定チェック開始');
+      const newMediasForLoudness = mediaFiles.filter(media => 
+        // ラウドネスが未測定かつ現在測定中でないメディアをフィルタリング
+        media.lufs === undefined && 
+        !measuringLoudness[media.id] && 
+        !loudnessErrors[media.id]
+      );
+
+      if (newMediasForLoudness.length > 0) {
+        console.log(`自動ラウドネス測定対象: ${newMediasForLoudness.length}件`);
+        
+        // 各メディアに対してシーケンシャルにラウドネス測定を実行
+        for (const media of newMediasForLoudness) {
+          try {
+            console.log(`ラウドネス測定開始: ${media.name} (${media.id})`);
+            // デバッグ: メディア情報の構造を出力
+            console.log('メディア情報:', {
+              id: media.id,
+              name: media.name,
+              path: media.path,
+              filePath: media.filePath,
+              hasPath: 'path' in media,
+              hasFilePath: 'filePath' in media,
+              mediaKeys: Object.keys(media)
+            });
+            
+            // 測定中フラグをセット
+            setMeasuringLoudness(prev => ({ ...prev, [media.id]: true }));
+            
+            // ラウドネス測定タスクを開始
+            if (!window.api) {
+              console.error('window.api が見つかりません');
+              continue;
+            }
+            
+            // ファイルパスをmedia.filePathまたはmedia.pathから取得
+            const filePath = media.filePath || media.path;
+            
+            if (!filePath) {
+              throw new Error('メディアのファイルパスが見つかりません');
+            }
+            
+            // ファイルパスの存在をデバッグ出力
+            console.log(`使用するファイルパス: ${filePath}`);
+            
+            const result: any = await window.api.invoke('create-task', 'loudness', {
+              mediaId: media.id,
+              mediaPath: filePath // filePathではなくmediaPathとして送信
+            });
+            
+            if (!result?.taskId) {
+              throw new Error('タスク作成に失敗しました');
+            }
+            
+            // タスクの状態監視を開始
+            monitorTaskStatus(result.taskId, (taskStatus) => {
+              if (taskStatus && taskStatus.status === 'completed' && taskStatus.data) {
+                // 測定成功
+                setMeasuringLoudness(prev => ({ ...prev, [media.id]: false }));
+                setLoudnessErrors(prev => {
+                  const newErrors = { ...prev };
+                  delete newErrors[media.id];
+                  return newErrors;
+                });
+                
+                const loudnessData = taskStatus.data as LoudnessResult;
+                const { lufs, lufsGain } = loudnessData;
+                
+                // メディア情報を更新
+                onUpdateMedia(media.id, {
+                  lufs,
+                  lufsGain,
+                  loudnessNormalization: true
+                });
+              } 
+              else if (taskStatus && (taskStatus.status === 'error' || taskStatus.status === 'failed')) {
+                // 測定失敗
+                setMeasuringLoudness(prev => ({ ...prev, [media.id]: false }));
+                setLoudnessErrors(prev => ({
+                  ...prev,
+                  [media.id]: taskStatus.error || '不明なエラー'
+                }));
+              }
+            });
+          } catch (error: any) {
+            console.error(`自動ラウドネス測定エラー (${media.id}):`, error);
+            setMeasuringLoudness(prev => ({ ...prev, [media.id]: false }));
+            setLoudnessErrors(prev => ({
+              ...prev,
+              [media.id]: error.message || '不明なエラー'
+            }));
+          }
+        }
+      } else {
+        console.log('自動ラウドネス測定の対象となるメディアはありません');
+      }
+    };
+
+    processNewMedias();
+  }, [mediaFiles, measuringLoudness, loudnessErrors, onUpdateMedia, monitorTaskStatus]);
 
   /**
    * ドラッグ&ドロップのイベントハンドラー

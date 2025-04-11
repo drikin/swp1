@@ -155,7 +155,15 @@ class LoudnessTask extends BaseTask {
               filePath: outputPath
             };
             
-            // タスク完了
+            // デバッグログを追加
+            console.log(`===== ラウドネス測定タスク完了 [${this.id}] =====`);
+            console.log(`メディアパス: ${typeof this.mediaPath === 'object' ? JSON.stringify(this.mediaPath) : this.mediaPath}`);
+            console.log(`結果: ${JSON.stringify({
+              lufs: result.integrated_loudness,
+              truePeak: result.true_peak
+            })}`);
+            
+            // タスク完了（TaskManagerのeventEmitterを通じてイベントが発行される）
             this.complete(result);
             resolve(result);
           } catch (error) {

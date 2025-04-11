@@ -83,8 +83,16 @@ function registerTaskAPI(ipcMain, taskManager) {
 
   // タスク状態取得
   ipcMain.handle('get-task-status', async (event, taskId) => {
-    console.log('get-task-statusハンドラが呼び出されました');
+    // ログ出力を削除（頻繁に呼び出されるため）
+    
     try {
+      if (!taskId) {
+        return {
+          success: false,
+          error: 'タスクIDが指定されていません'
+        };
+      }
+      
       const task = taskManager.getTaskById(taskId);
       if (!task) {
         return { 
