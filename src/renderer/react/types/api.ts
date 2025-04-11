@@ -47,6 +47,11 @@ export interface ElectronAPI {
     taskId?: string;
     error?: string;
   }>;
+  findTasksByMedia: (mediaPath: string, taskType?: string) => Promise<{
+    success: boolean;
+    tasks?: Task[];
+    error?: string;
+  }>;
   getWaveformData: (taskId: string) => Promise<WaveformDataResponse | null>;
   
   // イベントリスナー

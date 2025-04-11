@@ -682,6 +682,45 @@ class TaskManager {
   }
 
   /**
+   * アプリケーション終了時の全クリーンアップ処理
+   * 実行中のすべてのタスクを終了し、状態を保存する
+   * @returns {Promise<void>}
+   */
+  async cleanupAll() {
+    console.log('タスクマネージャーの終了処理を開始...');
+    
+    // 自動保存タイマーを停止
+    if (this.autoSaveTimer) {
+      clearInterval(this.autoSaveTimer);
+      this.autoSaveTimer = null;
+    }
+    
+    // 実行中のタスクをすべてキャンセル
+    const runningTasks = this.getTasks().filter(task => 
+      task.status === 'processing' || task.status === 'pending' || task.status === 'retry_pending'
+    );
+    
+    console.log(`${runningTasks.length}件の実行中タスクを終了します`);
+    
+    const cancelPromises = runningTasks.map(task => {
+      return this.cancelTask(task.id).catch(err => {
+        console.error(`タスク ${task.id} のキャンセル中にエラー:`, err);
+      });
+    });
+    
+    // すべてのキャンセル処理が終わるまで待機
+    if (cancelPromises.length > 0) {
+      await Promise.allSettled(cancelPromises);
+    }
+    
+    // 状態を保存
+    await this._saveTasks();
+    
+    console.log('タスクマネージャーの終了処理が完了しました');
+    return;
+  }
+
+  /**
    * 古いタスクをクリア
    * @param {number} maxAgeInDays - 保持する最大日数
    * @returns {number} - クリーンアップしたタスク数

@@ -11,9 +11,11 @@ const {
   parseTimeString, 
   formatTimeString 
 } = require('./utils');
+const { EventEmitter } = require('events');
 
-class FFmpegServiceCore {
+class FFmpegServiceCore extends EventEmitter {
   constructor() {
+    super();
     // 作業ディレクトリを初期化
     this.directories = initializeWorkDirectories();
     
@@ -65,7 +67,8 @@ class FFmpegServiceCore {
    * @param {...any} args - イベント引数
    */
   emit(eventName, ...args) {
-    this.taskManager.emit(eventName, ...args);
+    // EventEmitterの標準的なemitを使用
+    return super.emit(eventName, ...args);
   }
   
   /**
@@ -243,7 +246,7 @@ class FFmpegServiceCore {
     const {
       time = 0,
       width = 320,
-      height = 180,
+      height = null,
       quality = 90,
       outputPath = null
     } = options;
@@ -255,13 +258,20 @@ class FFmpegServiceCore {
       `${path.basename(filePath, path.extname(filePath))}_${Date.now()}.jpg`
     );
     
+    // フォルダが存在することを確認
+    if (!fs.existsSync(thumbnailDir)) {
+      fs.mkdirSync(thumbnailDir, { recursive: true });
+    }
+    
+    console.log(`サムネイル生成開始: ${filePath} -> ${outputFilePath}`);
+    
     // 引数の設定
     const args = [
       '-ss', formatTimeString(time),
       '-i', filePath,
       '-vframes', '1',
       '-q:v', String(Math.max(1, Math.min(31, 31 - quality / 3.3))),
-      '-vf', `scale=${width}:${height}:force_original_aspect_ratio=decrease,pad=${width}:${height}:(ow-iw)/2:(oh-ih)/2`,
+      '-vf', `scale=${width}:${height === null ? -1 : height}`,
       '-f', 'image2',
       '-y', outputFilePath
     ];
@@ -269,18 +279,50 @@ class FFmpegServiceCore {
     const taskId = uuidv4();
     
     try {
+      // タスク作成と実行
+      console.log(`サムネイルタスク作成: ${taskId} - ${args.join(' ')}`);
       await this.taskManager.createTask(args, {
         taskId,
         type: 'thumbnail',
         details: { filePath, time, outputPath: outputFilePath }
       });
       
-      // タスク情報を取得
-      const task = this.taskManager.getTaskStatus(taskId);
+      // タスクが完了するまで待機（重要）
+      const waitForCompletion = async () => {
+        let task;
+        let retries = 0;
+        const maxRetries = 30; // 最大30回（30秒）試行
+        
+        while (retries < maxRetries) {
+          task = this.taskManager.getTaskStatus(taskId);
+          
+          if (task.status === 'completed') {
+            break;
+          } else if (task.status === 'error') {
+            throw new Error(`サムネイル生成に失敗しました: ${task.error}`);
+          }
+          
+          // 100ms待機してから再チェック
+          await new Promise(resolve => setTimeout(resolve, 100));
+          retries++;
+        }
+        
+        if (retries >= maxRetries) {
+          throw new Error('サムネイル生成がタイムアウトしました');
+        }
+        
+        return task;
+      };
       
-      if (task.status === 'error') {
-        throw new Error(`サムネイル生成に失敗しました: ${task.error}`);
+      // タスク完了を待機
+      await waitForCompletion();
+      
+      // ファイルの存在を確認
+      if (!fs.existsSync(outputFilePath)) {
+        throw new Error(`生成されたサムネイルファイルが見つかりません: ${outputFilePath}`);
       }
+      
+      console.log(`サムネイル生成完了: ${outputFilePath}`);
       
       return {
         success: true,
@@ -290,6 +332,7 @@ class FFmpegServiceCore {
         height
       };
     } catch (error) {
+      console.error('サムネイル生成エラー:', error);
       throw error;
     }
   }

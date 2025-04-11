@@ -2,11 +2,12 @@
  * main.js
  * Electronアプリケーションのエントリーポイント
  */
-const { app, ipcMain } = require('electron');
+const { app, ipcMain, protocol } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { execSync } = require('child_process');
-const ffmpegServiceManager = require('./ffmpeg-service-manager');
+const { getFFmpegService } = require('./services/ffmpeg/index');
+const ffmpegService = getFFmpegService();
 const { 
   initializeApp, 
   cleanupApp, 
@@ -47,6 +48,19 @@ ffmpeg.setFfmpegPath(ffmpegPath);
 app.whenReady().then(async () => {
   await initializeApp();
   
+  // ローカルファイルアクセスのためのプロトコルハンドラを登録
+  protocol.registerFileProtocol('file', (request, callback) => {
+    try {
+      // URLのパス部分を取得してデコード
+      const filePath = decodeURI(request.url.slice('file://'.length));
+      console.log('ファイルプロトコルアクセス:', filePath);
+      callback({ path: filePath });
+    } catch (error) {
+      console.error('ファイルプロトコルエラー:', error);
+      callback({ error: -2 }); // ファイルが見つからない場合のエラーコード
+    }
+  });
+  
   // すべてのIPCハンドラーを登録
   registerIpcHandlers();
   registerExportHandlers();
@@ -55,10 +69,8 @@ app.whenReady().then(async () => {
 // すべてのウィンドウが閉じられたときの処理 (macOS以外)
 app.on('window-all-closed', () => {
   if (process.platform !== 'darwin') {
-    // FFmpegサービスの停止
-    ffmpegServiceManager.stop().finally(() => {
-      app.quit();
-    });
+    // アプリを終了
+    app.quit();
   }
 });
 

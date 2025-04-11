@@ -8,7 +8,8 @@ const {
   openDirectoryDialog, 
   getDesktopPath 
 } = require('./file-operations');
-const ffmpegServiceManager = require('../ffmpeg-service-manager');
+const { getFFmpegService } = require('../services/ffmpeg/index');
+const ffmpegService = getFFmpegService();
 const { 
   getMainWindow, 
   getTaskManager 
@@ -41,13 +42,11 @@ function registerIpcHandlers() {
   registerHandler(ipcMain, 'check-ffmpeg', async () => {
     // FFmpegサービスのヘルスチェック
     try {
-      // サービスの状態と機能を確認
-      await ffmpegServiceManager.checkHealth(); // サービスが応答するか確認するだけ
-      const hwAccel = await ffmpegServiceManager.checkHardwareAccel();
-      const ffmpegVersion = await ffmpegServiceManager.getFFmpegVersion();
+      // 新しいFFmpegServiceCoreは直接利用可能
+      const hwAccel = await checkVideoToolboxSupport();
       return { 
         success: true, 
-        version: `FFmpeg: ${ffmpegVersion || 'N/A'} (HW: ${hwAccel ? '有効' : '無効'})` 
+        version: `FFmpeg: ${ffmpegService.utils ? ffmpegService.utils.getFFmpegVersion() || 'N/A' : 'N/A'} (HW: ${hwAccel ? '有効' : '無効'})` 
       };
     } catch (error) {
       return { success: false, error: error.message };
@@ -56,11 +55,11 @@ function registerIpcHandlers() {
   
   // FFmpegタスク関連のハンドラー
   registerHandler(ipcMain, 'ffmpeg-task-status', async (_, taskId) => {
-    return await ffmpegServiceManager.getTaskStatus(taskId);
+    return ffmpegService.getTaskStatus(taskId);
   });
   
   registerHandler(ipcMain, 'ffmpeg-task-cancel', async (_, taskId) => {
-    return await ffmpegServiceManager.cancelTask(taskId);
+    return await ffmpegService.cancelTask(taskId);
   });
   
   registerHandler(ipcMain, 'get-task-list', async () => {

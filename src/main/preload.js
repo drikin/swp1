@@ -343,7 +343,7 @@ try {
     // 新しいタスク管理システムのAPI（追加）
     createTask: (taskType, options) => ipcRenderer.invoke('create-task', taskType, options),
     getTaskResult: (taskId) => ipcRenderer.invoke('get-task-result', taskId),
-    findTasksByMedia: (mediaPath) => ipcRenderer.invoke('find-tasks-by-media', mediaPath),
+    findTasksByMedia: (mediaPath, taskType) => ipcRenderer.invoke('find-tasks-by-media', mediaPath, taskType),
     getTaskTypes: () => ipcRenderer.invoke('get-task-types'),
     cleanTasksHistory: () => ipcRenderer.invoke('clean-tasks-history'),
     

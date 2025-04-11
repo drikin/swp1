@@ -6,7 +6,8 @@ const { app, BrowserWindow, protocol } = require('electron');
 const path = require('path');
 const fs = require('fs');
 const { ensureWorkDirectories } = require('./file-operations');
-const ffmpegServiceManager = require('../ffmpeg-service-manager');
+const { getFFmpegService } = require('../services/ffmpeg/index');
+const ffmpegService = getFFmpegService();
 const { checkVideoToolboxSupport } = require('./ffmpeg-helpers');
 const { initializeTaskSystem } = require('../task-init');
 
@@ -95,18 +96,13 @@ async function initializeApp() {
       setupTaskEventListeners();
     }
     
-    // FFmpegサービスの起動
-    console.log('FFmpegサービスを起動します...');
-    ffmpegServiceManager.start().catch(error => {
-      console.error('FFmpegサービス起動エラー:', error);
-    });
+    // FFmpegサービスを初期化
+    console.log('FFmpegサービスを初期化します...');
     
-    // FFmpegサービスの準備が完了したらハードウェアエンコード対応確認を実行
-    ffmpegServiceManager.onReady(() => {
-      console.log('FFmpegサービスの準備が完了しました。ハードウェアエンコード対応確認を実行します。');
-      checkVideoToolboxSupport().then(hwaccelSupport => {
-        global.hwaccelSupport = hwaccelSupport;
-      });
+    // FFmpegハードウェアエンコード対応確認を実行
+    console.log('ハードウェアエンコード対応確認を実行します。');
+    checkVideoToolboxSupport().then(hwaccelSupport => {
+      global.hwaccelSupport = hwaccelSupport;
     });
     
     // ダウンロードを防止（セキュリティ対策）
@@ -140,17 +136,8 @@ async function cleanupApp() {
       });
     }
     
-    // FFmpegサービスの停止
-    console.log('FFmpegサービスを停止します...');
-    await ffmpegServiceManager.stop().catch(error => {
-      console.error('FFmpegサービス停止エラー:', error);
-    });
-    
-    // 残っているFFmpegプロセスの強制終了
-    console.log('残存FFmpegプロセスの強制終了を確認します...');
-    await ffmpegServiceManager.killAllFFmpegProcesses().catch(error => {
-      console.error('FFmpegプロセス強制終了エラー:', error);
-    });
+    // FFmpegサービスは自動的にクリーンアップされます...
+    console.log('FFmpegサービスは自動的にクリーンアップされます...');
   } catch (error) {
     console.error('アプリケーション終了処理エラー:', error);
   } finally {

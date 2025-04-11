@@ -75,6 +75,9 @@ class FFmpegTaskManager extends EventEmitter {
     task.status = 'processing';
     this.tasks.set(taskId, task);
     
+    // コマンドの詳細ログ出力
+    console.log(`[FFmpegTaskManager] タスク ${taskId} 実行コマンド: ${ffmpegPath} ${args.join(' ')}`);
+    
     return new Promise((resolve, reject) => {
       try {
         // FFmpegプロセスを作成して起動

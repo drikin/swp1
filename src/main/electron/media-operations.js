@@ -6,7 +6,8 @@ const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const { runFFprobeCommand } = require('./ffmpeg-helpers');
-const ffmpegServiceManager = require('../ffmpeg-service-manager');
+const { getFFmpegService } = require('../services/ffmpeg/index');
+const ffmpegService = getFFmpegService();
 
 /**
  * メディア情報を取得
@@ -127,7 +128,7 @@ async function generateThumbnail(pathOrParams, fileId) {
     ];
     
     // FFmpegサービスを使用してサムネイル生成を開始
-    const taskResult = await ffmpegServiceManager.processFFmpeg(ffmpegArgs);
+    const taskResult = await ffmpegService.processFFmpeg(ffmpegArgs);
     
     // タスクステータスの監視を開始
     let isCompleted = false;
@@ -138,7 +139,7 @@ async function generateThumbnail(pathOrParams, fileId) {
       await new Promise(resolve => setTimeout(resolve, 500));
       
       // タスクステータスの取得
-      taskStatus = await ffmpegServiceManager.getTaskStatus(taskResult.taskId);
+      taskStatus = await ffmpegService.getTaskStatus(taskResult.taskId);
       
       if (taskStatus.status === 'completed') {
         isCompleted = true;
@@ -193,7 +194,7 @@ async function generateWaveform(filePath, outputPath) {
     ];
     
     // FFmpegサービスを使用して波形データ生成を開始
-    const taskResult = await ffmpegServiceManager.processFFmpeg(ffmpegArgs);
+    const taskResult = await ffmpegService.processFFmpeg(ffmpegArgs);
     
     // タスクステータスの監視を開始
     let isCompleted = false;
@@ -204,7 +205,7 @@ async function generateWaveform(filePath, outputPath) {
       await new Promise(resolve => setTimeout(resolve, 500));
       
       // タスクステータスの取得
-      taskStatus = await ffmpegServiceManager.getTaskStatus(taskResult.taskId);
+      taskStatus = await ffmpegService.getTaskStatus(taskResult.taskId);
       
       if (taskStatus.status === 'completed') {
         isCompleted = true;

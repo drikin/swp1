@@ -79,90 +79,151 @@ export const MediaProvider: React.FC<{ children: React.ReactNode }> = ({ childre
   const initializeMediaProcessing = useCallback(async (media: MediaFileWithTaskIds) => {
     if (!media || !media.path) return;
 
+    // このメディアIDの処理が既に進行中か確認
+    const processingKey = `init_processing_${media.id}`;
+    if (window.sessionStorage.getItem(processingKey) === 'true') {
+      console.log(`[初期処理スキップ] メディア: ${media.id} - 既に処理中です`);
+      return;
+    }
+
+    // 処理中フラグを設定
+    window.sessionStorage.setItem(processingKey, 'true');
+
+    // 初期化前にコンソールに詳細なログを出力
+    console.log(`[初期処理開始] メディア: ${media.id}, パス: ${media.path}, コンテキスト状態:`, {
+      getThumbnailForMedia: !!getThumbnailForMedia,
+      getWaveformForMedia: !!getWaveformForMedia,
+      windowAPIStatus: {
+        hasAPI: !!window.api,
+        hasInvoke: !!(window.api && 'invoke' in window.api),
+        hasFindTasksByMedia: !!(window.api && 'findTasksByMedia' in window.api),
+        hasGenerateThumbnail: !!(window.api && 'generateThumbnail' in window.api)
+      }
+    });
+
     try {
+      console.log(`[初期処理開始] メディア: ${media.id}, パス: ${media.path}`);
+      
       // 波形生成を開始
+      console.log(`[波形生成開始] メディア: ${media.id}`);
       const waveformTaskId = await getWaveformForMedia(media);
+      console.log(`[波形生成結果] メディア: ${media.id}, タスクID: ${waveformTaskId}`);
       if (waveformTaskId) {
         updateMedia(media.id, { waveformTaskId } as Partial<MediaFile>);
       }
       
-      // サムネイル生成を開始
-      const thumbnailTaskId = await getThumbnailForMedia(media);
-      if (thumbnailTaskId) {
-        updateMedia(media.id, { thumbnailTaskId } as Partial<MediaFile>);
+      // サムネイル生成を開始（直接URL取得の試み）
+      console.log(`[サムネイル生成開始] メディア: ${media.id}`);
+      
+      if (!getThumbnailForMedia) {
+        console.error(`[サムネイル生成エラー] getThumbnailForMedia関数が未定義です`);
+        window.sessionStorage.removeItem(processingKey); // 処理中フラグを解除
+        return;
+      }
+      
+      try {
+        const thumbnailResult = await getThumbnailForMedia(media);
+        console.log(`[サムネイル生成結果] メディア: ${media.id}, 結果: `, thumbnailResult);
+        
+        // タスクIDまたはURL文字列のどちらの可能性もある
+        if (typeof thumbnailResult === 'string') {
+          if (thumbnailResult.startsWith('file://')) {
+            // URLの場合はthumbnailプロパティに設定
+            console.log(`[サムネイルURL設定] メディア: ${media.id}, URL: ${thumbnailResult}`);
+            updateMedia(media.id, { thumbnail: thumbnailResult } as Partial<MediaFile>);
+          } else {
+            // それ以外はタスクIDとして扱う
+            console.log(`[サムネイルタスクID設定] メディア: ${media.id}, ID: ${thumbnailResult}`);
+            updateMedia(media.id, { thumbnailTaskId: thumbnailResult } as Partial<MediaFile>);
+          }
+        } else {
+          console.warn(`[サムネイル生成警告] メディア: ${media.id}, 返値がnullまたは無効な形式です`);
+        }
+      } catch (error) {
+        console.error(`[サムネイル生成例外] メディア: ${media.id}`, error);
       }
     } catch (error) {
       console.error('[メディア処理初期化] エラー:', media.id, error);
+    } finally {
+      // 処理中フラグを解除
+      window.sessionStorage.removeItem(processingKey);
     }
   }, [getWaveformForMedia, getThumbnailForMedia, updateMedia]);
 
   /**
-   * メディアファイルの追加処理
+   * メディアファイルを追加する関数
+   * @param filePaths ファイルパスの配列
    */
-  const addMediaFiles = useCallback(async (filePaths: string[]) => {
-    if (!filePaths || filePaths.length === 0) {
-      console.log('[メディア追加] ファイルパスが指定されていません');
-      return [];
-    }
-
-    if (!window.api || !window.api.getMediaInfo) {
-      setError('メディア情報取得APIが利用できません');
-      return [];
-    }
-
+  const addMediaFiles = useCallback(async (filePaths: string[]): Promise<MediaFile[]> => {
+    if (!filePaths || filePaths.length === 0) return [];
+    
     setIsLoading(true);
     setError(null);
-
     const newMediaFiles: MediaFile[] = [];
-
+    
     try {
+      console.log(`メディアファイル追加処理を開始します: ${filePaths.length}件`);
+      
       for (const filePath of filePaths) {
-        console.log('[メディア追加] 処理中:', filePath);
+        console.log(`メディア情報を取得中: ${filePath}`);
         
-        // メディア情報を取得
-        const mediaInfo = await window.api.getMediaInfo(filePath);
-        if (!mediaInfo || !mediaInfo.success) {
-          console.error('[メディア追加] 情報取得失敗:', filePath, mediaInfo);
+        // 既に同じパスのメディアが存在するかチェック
+        const existingMedia = mediaFiles.find(m => m.path === filePath);
+        if (existingMedia) {
+          console.log(`既に追加済みのメディアです: ${filePath}`);
           continue;
         }
-
-        const fileName = mediaInfo.name || filePath.split('/').pop() || 'unknown';
-
-        const media: MediaFile = {
-          id: window.nodeCrypto.generateUUID(),
+        
+        if (!window.api?.getMediaInfo) {
+          console.error('メディア情報取得APIが利用できません');
+          setError('メディア情報取得APIが利用できません');
+          return [];
+        }
+        
+        // APIを使ってメディア情報を取得
+        const mediaInfo = await window.api.getMediaInfo(filePath);
+        console.log('取得したメディア情報:', mediaInfo);
+        
+        if (!mediaInfo) {
+          console.error(`メディア情報を取得できませんでした: ${filePath}`);
+          continue;
+        }
+        
+        // メディアIDを生成（ファイルパスのハッシュまたはUUID）
+        const mediaId = window.nodeCrypto.generateUUID();
+        
+        const mediaFile: MediaFile = {
+          id: mediaId,
           path: filePath,
-          name: fileName,
+          name: mediaInfo.name || filePath.split('/').pop() || 'unknown',
           type: mediaInfo.format || 'unknown',
           size: mediaInfo.size || 0,
           duration: mediaInfo.duration || 0,
           trimStart: null,
           trimEnd: null
         };
-
-        console.log('[メディア追加] メディア情報:', media);
-        newMediaFiles.push(media);
         
-        // 波形とサムネイルの生成を開始
-        initializeMediaProcessing(media as MediaFileWithTaskIds);
-      }
-
-      // 既存のメディアファイルリストに新しいファイルを追加
-      setMediaFiles(prev => [...prev, ...newMediaFiles]);
-      
-      // 追加した最初のメディアを選択（既に他のメディアが選択されていない場合）
-      if (newMediaFiles.length > 0 && !selectedMedia) {
-        setSelectedMedia(newMediaFiles[0]);
+        console.log(`メディアオブジェクト作成: `, mediaFile);
+        newMediaFiles.push(mediaFile);
       }
       
-      setIsLoading(false);
-      return newMediaFiles;
+      // 状態を更新
+      setMediaFiles(prevMediaFiles => [...prevMediaFiles, ...newMediaFiles]);
+      console.log(`${newMediaFiles.length}件のメディアを追加しました。総数: ${mediaFiles.length + newMediaFiles.length}`);
+      
+      // サムネイルと波形データの初期取得も行う（初期処理の場合）
+      for (const media of newMediaFiles) {
+        await initializeMediaProcessing(media as MediaFileWithTaskIds);
+      }
     } catch (error) {
-      console.error('[メディア追加] エラー:', error);
-      setError('メディアファイルの追加中にエラーが発生しました');
+      console.error('メディアファイル追加中にエラーが発生しました:', error);
+      setError('メディアファイル追加中にエラーが発生しました');
+    } finally {
       setIsLoading(false);
-      return [];
     }
-  }, [selectedMedia, initializeMediaProcessing]);
+    
+    return newMediaFiles;
+  }, [mediaFiles.length, initializeMediaProcessing]);
 
   /**
    * メディアファイルの並び替え

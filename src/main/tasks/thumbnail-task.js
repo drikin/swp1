@@ -2,11 +2,14 @@
  * サムネイル生成タスク
  * 動画ファイルからサムネイル画像を生成します
  */
-const { spawn } = require('child_process');
 const path = require('path');
 const fs = require('fs');
 const os = require('os');
 const BaseTask = require('../core/base-task');
+
+// FFmpegサービスのインポート
+const { getFFmpegService } = require('../services/ffmpeg/index');
+const ffmpegService = getFFmpegService();
 
 class ThumbnailTask extends BaseTask {
   constructor(params) {
@@ -26,52 +29,43 @@ class ThumbnailTask extends BaseTask {
     this.size = params.size || `${this.thumbnailWidth}x${this.thumbnailHeight}`;
     
     // FFmpeg処理用の変数
-    this.ffmpegProcess = null;
+    this.ffmpegTaskId = null;
   }
 
   /**
-   * サムネイル生成の実行
+   * タスクの実行
+   * @returns {Promise<Object>} 実行結果
    */
   async execute() {
+    console.log(`===== サムネイル生成タスク開始 [${this.id}] =====`);
+    console.log(`入力ファイル: ${this.mediaPath}`);
+    console.log(`時間位置: ${this.timePosition}秒`);
+    console.log(`サイズ: ${this.thumbnailWidth}x${this.thumbnailHeight}`);
+
     if (!this.mediaPath) {
+      console.error('メディアパスが指定されていません');
       return this.fail('メディアパスが指定されていません');
     }
 
+    // 指定されたメディアファイルの存在確認
+    const inputPath = this.mediaPath;
+    
     try {
-      // mediaPathがオブジェクトの場合の処理を改善
-      let inputPath = this.mediaPath;
-      
-      // オブジェクトかどうかのチェックを強化
-      if (this.mediaPath && typeof this.mediaPath === 'object') {
-        console.log('mediaPathはオブジェクトです:', JSON.stringify(this.mediaPath));
-        
-        // pathプロパティまたはfilePathプロパティを使用
-        if (this.mediaPath.path) {
-          inputPath = this.mediaPath.path;
-          console.log('mediaPath.pathを使用します:', inputPath);
-        } else if (this.mediaPath.filePath) {
-          inputPath = this.mediaPath.filePath;
-          console.log('mediaPath.filePathを使用します:', inputPath);
-        } else {
-          // オブジェクトに必要なプロパティがない場合
-          console.error('mediaPathオブジェクトに有効なパスプロパティがありません:', this.mediaPath);
-          return this.fail(`無効なメディアパス形式です: ${JSON.stringify(this.mediaPath)}`);
-        }
-      } else {
-        console.log('mediaPathは文字列です:', inputPath);
-      }
-
-      // 入力ファイルの存在確認
       if (!fs.existsSync(inputPath)) {
-        console.error('入力ファイルが存在しません:', inputPath);
-        return this.fail(`入力ファイルが存在しません: ${inputPath}`);
+        console.error(`入力ファイルが存在しません: ${inputPath}`);
+        return this.fail(`ファイルが存在しません: ${inputPath}`);
       }
 
-      // FFmpegのパスを取得
-      const ffmpegPath = global.ffmpegPath;
-      if (!ffmpegPath) {
-        return this.fail('FFmpegのパスが設定されていません');
+      // FFmpegサービスが初期化されているか確認
+      if (!ffmpegService) {
+        console.error('FFmpegサービスが利用できません');
+        return this.fail('FFmpegサービスが利用できません');
       }
+
+      console.log('FFmpegサービスのインスタンス情報:', {
+        type: typeof ffmpegService,
+        methods: Object.getOwnPropertyNames(Object.getPrototypeOf(ffmpegService))
+      });
 
       // 新しい作業ディレクトリを使用（ホームディレクトリ直下のSuper Waterec）
       const homeDir = os.homedir();
@@ -87,80 +81,129 @@ class ThumbnailTask extends BaseTask {
       const outputPath = path.join(outputDir, `thumbnail_${this.id}.jpg`);
       console.log('サムネイル出力先:', outputPath);
 
+      // 進捗更新
+      this.updateProgress(10, { phase: 'starting' });
+
+      console.log('FFmpegサービスを使用してサムネイル生成を開始します');
+
+      // オプションの準備
+      const options = {
+        time: this.timePosition,
+        width: this.thumbnailWidth,
+        height: this.thumbnailHeight !== -1 ? this.thumbnailHeight : null,
+        quality: 90,
+        outputPath: outputPath
+      };
+      
+      console.log('サムネイル生成パラメータ:', {
+        inputPath,
+        options,
+        timePosition: this.timePosition,
+        width: this.thumbnailWidth,
+        height: this.thumbnailHeight
+      });
+      
+      // FFmpegコマンドを直接準備（バックアップとしてログ表示のみ）
+      const ffmpegPath = global.ffmpegPath || '/opt/homebrew/bin/ffmpeg';
+      console.log('FFmpegパス:', ffmpegPath);
+      
       // 時間をhh:mm:ss形式に変換
       const formattedTime = this._formatTimePosition(this.timePosition);
-
+      
       // FFmpegコマンドライン引数の設定
-      const args = [
+      const ffmpegArgs = [
         '-ss', formattedTime,
         '-i', inputPath,
         '-vframes', '1',
-        // 縦横比を維持するため、-sオプションを削除し、フィルターを使用
-        '-vf', `scale=${this.thumbnailWidth}:-1`,
-        '-y', // 既存ファイルを上書き
+        '-vf', `scale=${this.thumbnailWidth}:${this.thumbnailHeight === -1 ? '-1' : this.thumbnailHeight}`,
+        '-q:v', '2',
+        '-y',
         outputPath
       ];
-
-      console.log('サムネイル生成コマンド:', `${ffmpegPath} ${args.join(' ')}`);
-
-      this.updateProgress(10, { phase: 'starting' });
-
-      return new Promise((resolve, reject) => {
-        // FFmpegプロセスを作成
-        this.ffmpegProcess = spawn(ffmpegPath, args);
+      
+      console.log('サムネイル生成コマンド（参考用）:', `${ffmpegPath} ${ffmpegArgs.join(' ')}`);
+      
+      this.updateProgress(20, { phase: 'preparing' });
+      
+      // FFmpegサービスを使用してサムネイル生成
+      console.log('ffmpegService.generateThumbnailを呼び出します');
+      const result = await ffmpegService.generateThumbnail(inputPath, options);
+      console.log('FFmpegServiceのサムネイル生成結果:', result);
+      
+      if (!result || !result.success) {
+        console.error('サムネイル生成に失敗しました:', result);
         
-        this.updateProgress(50, { phase: 'processing' });
+        // バックアップメソッド：直接FFmpegを実行
+        console.log('バックアップ方法としてFFmpegを直接実行します');
+        const { spawn } = require('child_process');
         
-        // エラー出力を収集
-        let errorOutput = '';
-        this.ffmpegProcess.stderr.on('data', (data) => {
-          errorOutput += data.toString();
+        return new Promise((resolve, reject) => {
+          this.updateProgress(30, { phase: 'direct_execution' });
+          
+          const ffmpegProcess = spawn(ffmpegPath, ffmpegArgs);
+          console.log('FFmpegプロセスを直接開始しました');
+          
+          let stdoutData = '';
+          let stderrData = '';
+          
+          ffmpegProcess.stdout.on('data', (data) => {
+            const chunk = data.toString();
+            stdoutData += chunk;
+            console.log('FFmpeg stdout:', chunk);
+          });
+          
+          ffmpegProcess.stderr.on('data', (data) => {
+            const chunk = data.toString();
+            stderrData += chunk;
+            console.log('FFmpeg stderr:', chunk);
+          });
+          
+          ffmpegProcess.on('exit', (code, signal) => {
+            console.log(`FFmpegプロセスが終了しました: code=${code}, signal=${signal}`);
+            
+            if (code === 0) {
+              // ファイルの存在を確認
+              if (fs.existsSync(outputPath)) {
+                console.log(`サムネイルファイルが生成されました: ${outputPath}`);
+                this.updateProgress(100, { phase: 'completed', filePath: outputPath });
+                resolve(this.succeed({ filePath: outputPath }));
+              } else {
+                console.error(`FFmpegは正常終了しましたが、ファイルが存在しません: ${outputPath}`);
+                resolve(this.fail('サムネイルファイルが生成されませんでした'));
+              }
+            } else {
+              console.error('FFmpegによるサムネイル生成に失敗しました', { code, stderr: stderrData });
+              resolve(this.fail(`FFmpegエラー: ${stderrData}`));
+            }
+          });
+          
+          ffmpegProcess.on('error', (err) => {
+            console.error('FFmpegプロセス起動エラー:', err);
+            resolve(this.fail(`FFmpegプロセス起動エラー: ${err.message}`));
+          });
         });
-        
-        // エラーハンドリング
-        this.ffmpegProcess.on('error', (error) => {
-          this.ffmpegProcess = null;
-          reject(error);
-        });
-        
-        // プロセス終了時の処理
-        this.ffmpegProcess.on('close', (code) => {
-          this.ffmpegProcess = null;
-          
-          if (code !== 0) {
-            reject(new Error(`FFmpegプロセスが${code}で終了しました: ${errorOutput}`));
-            return;
-          }
-          
-          // ファイルの存在確認
-          if (!fs.existsSync(outputPath)) {
-            reject(new Error('サムネイルファイルが生成されませんでした'));
-            return;
-          }
-          
-          // ファイルサイズの確認
-          const fileStats = fs.statSync(outputPath);
-          if (fileStats.size === 0) {
-            reject(new Error('生成されたサムネイルファイルが空です'));
-            return;
-          }
-          
-          // タスク完了時にファイルパスをオブジェクト形式で保存
-          const result = {
-            filePath: outputPath,
-            fileSize: fileStats.size,
-            width: this.thumbnailWidth,
-            height: this.thumbnailHeight === -1 ? 'auto' : this.thumbnailHeight,
-            timePosition: this.timePosition
-          };
-          
-          // 完了状態に設定し、結果データを保存
-          this.complete(result);
-          resolve(outputPath);
-        });
+      }
+      
+      // 生成されたサムネイルファイルの存在を確認
+      if (!fs.existsSync(result.path)) {
+        console.error(`サムネイルが生成されましたが、ファイルが見つかりません: ${result.path}`);
+        return this.fail('サムネイルファイルが見つかりません');
+      }
+      
+      console.log(`===== サムネイル生成タスク完了 [${this.id}] =====`);
+      console.log(`生成されたファイル: ${result.path}`);
+      
+      // タスク完了
+      this.updateProgress(100, { phase: 'completed' });
+      return this.complete({
+        filePath: result.path,
+        width: result.width,
+        height: result.height,
+        time: result.time
       });
     } catch (error) {
-      return this.fail(error);
+      console.error('サムネイル生成中にエラーが発生しました:', error);
+      return this.fail(`サムネイル生成エラー: ${error.message}`);
     }
   }
 
@@ -183,14 +226,13 @@ class ThumbnailTask extends BaseTask {
    * タスクキャンセル
    */
   cancel() {
-    // FFmpegプロセスが実行中なら終了
-    if (this.ffmpegProcess) {
+    // FFmpegサービス経由でタスクをキャンセル
+    if (this.ffmpegTaskId && ffmpegService) {
       try {
-        this.ffmpegProcess.kill('SIGTERM');
+        ffmpegService.cancelTask(this.ffmpegTaskId);
       } catch (err) {
-        console.error('FFmpegプロセスの終了に失敗:', err);
+        console.error('FFmpegタスクのキャンセルに失敗:', err);
       }
-      this.ffmpegProcess = null;
     }
     
     return super.cancel();

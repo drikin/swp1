@@ -52,6 +52,9 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
   const [measuringLoudness, setMeasuringLoudness] = useState<Record<string, boolean>>({});
   const [loudnessErrors, setLoudnessErrors] = useState<Record<string, string>>({});
   
+  // サムネイル処理中のメディアを追跡（無限ループ防止）
+  const processingThumbnails = useRef<Set<string>>(new Set());
+
   // タイムラインペインのDOM参照
   const timelinePaneRef = useRef<HTMLDivElement>(null);
 
@@ -210,43 +213,119 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
   }, [onUpdateMedia]);
 
   /**
+   * 必要なサムネイルを取得
+   */
+  const loadThumbnails = async () => {
+    if (!mediaFiles.length) return;
+    
+    // サムネイル処理前後のデバッグ出力を追加
+    console.log('サムネイル取得処理開始 - Timeline', {
+      mediaCount: mediaFiles.length,
+      currentThumbnails: Object.keys(thumbnails).length
+    });
+    
+    const thumbnailPromises = mediaFiles.map(async (media) => {
+      try {
+        // 既に取得済みまたは処理中の場合はスキップ
+        if (thumbnails[media.id]) {
+          console.log(`スキップ: サムネイル既に取得済み [${media.id}]`);
+          return null;
+        }
+        
+        // 現在処理中の場合もスキップ（無限ループ防止）
+        if (processingThumbnails.current.has(media.id)) {
+          console.log(`スキップ: サムネイル処理中 [${media.id}]`);
+          return null;
+        }
+        
+        // 処理中としてマーク
+        processingThumbnails.current.add(media.id);
+        
+        console.log(`サムネイル取得処理開始 [${media.id}]`);
+        let url = await getThumbnailForMedia(media);
+        console.log(`サムネイル取得結果 [${media.id}]:`, url);
+        
+        // URLでない場合（タスクIDが返された場合）、そのタスクが完了したURLを取得する
+        if (url && (!url.startsWith('file://') && !url.startsWith('secure-file://'))) {
+          console.log(`タスクIDが返されました [${url}]、完了を待機します`);
+          
+          let retryCount = 0;
+          const maxRetries = 5;
+          
+          // タスクが完了するまで最大5回、1秒間隔で再試行
+          while (retryCount < maxRetries) {
+            await new Promise(resolve => setTimeout(resolve, 1000));
+            
+            try {
+              console.log(`サムネイル再取得試行 ${retryCount + 1}/${maxRetries} [${media.id}]`);
+              const newUrl = await getThumbnailForMedia(media);
+              
+              if (newUrl && (newUrl.startsWith('file://') || newUrl.startsWith('secure-file://'))) {
+                url = newUrl;
+                console.log(`有効なサムネイルURLを取得しました [${media.id}]: ${url}`);
+                break;
+              }
+            } catch (retryError) {
+              console.warn(`サムネイル再取得エラー [${media.id}]:`, retryError);
+            }
+            
+            retryCount++;
+          }
+        }
+        
+        // 処理完了としてマーク
+        processingThumbnails.current.delete(media.id);
+        
+        // URLでない場合はnullを返す
+        if (!url || (!url.startsWith('file://') && !url.startsWith('secure-file://'))) {
+          console.warn(`有効なサムネイルURLが取得できませんでした [${media.id}]`);
+          return null;
+        }
+        
+        return { id: media.id, url };
+      } catch (error) {
+        // エラー時も処理中マークを解除
+        processingThumbnails.current.delete(media.id);
+        console.error(`サムネイル取得エラー (${media.id}):`, error);
+        return null;
+      }
+    });
+    
+    // 最大10個のプロミスだけ同時に処理（負荷軽減）
+    const results: (ThumbnailResult | null)[] = [];
+    const chunks = [];
+    for (let i = 0; i < thumbnailPromises.length; i += 10) {
+      chunks.push(thumbnailPromises.slice(i, i + 10));
+    }
+    
+    for (const chunk of chunks) {
+      const chunkResults = await Promise.all(chunk);
+      results.push(...chunkResults);
+    }
+    
+    // 取得したサムネイルを状態に反映
+    const newThumbnails: Record<string, string> = { ...thumbnails };
+    
+    results.forEach(result => {
+      if (result && result.id && result.url) {
+        console.log(`サムネイル表示情報を更新 [${result.id}]: ${result.url}`);
+        newThumbnails[result.id] = result.url;
+      }
+    });
+    
+    console.log('サムネイル取得処理完了 - Timeline', {
+      updatedCount: Object.keys(newThumbnails).length - Object.keys(thumbnails).length
+    });
+    
+    setThumbnails(newThumbnails);
+  };
+
+  /**
    * サムネイル読み込み処理
    */
   useEffect(() => {
-    // 必要なサムネイルを取得
-    const loadThumbnails = async () => {
-      if (!mediaFiles.length) return;
-      
-      const thumbnailPromises = mediaFiles.map(async (media) => {
-        try {
-          // 既に取得済みの場合はスキップ
-          if (thumbnails[media.id]) return null;
-          
-          const url = await getThumbnailForMedia(media);
-          if (!url) return null;
-          return { id: media.id, url };
-        } catch (error) {
-          console.error(`サムネイル取得エラー (${media.id}):`, error);
-          return null;
-        }
-      });
-      
-      const results = await Promise.all(thumbnailPromises);
-      
-      // 取得したサムネイルを状態に反映
-      const newThumbnails: Record<string, string> = { ...thumbnails };
-      
-      results.forEach(result => {
-        if (result && result.id && result.url) {
-          newThumbnails[result.id] = result.url;
-        }
-      });
-      
-      setThumbnails(newThumbnails);
-    };
-    
     loadThumbnails();
-  }, [mediaFiles, thumbnails, getThumbnailForMedia]);
+  }, [mediaFiles, getThumbnailForMedia]);
 
   /**
    * ドラッグ&ドロップのイベントハンドラー

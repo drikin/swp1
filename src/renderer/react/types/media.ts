@@ -32,6 +32,21 @@ export interface ThumbnailGenerateParams {
   height?: number;
 }
 
+// サムネイル生成レスポンス
+export interface ThumbnailGenerateResponse {
+  // 成功の場合
+  taskId?: string;
+  status?: string;
+  pending?: boolean;
+  
+  // 既存のサムネイルが見つかった場合
+  filePath?: string;
+  
+  // エラーの場合
+  success?: boolean;
+  error?: string;
+}
+
 // 波形データレスポンス
 export interface WaveformDataResponse {
   success?: boolean;

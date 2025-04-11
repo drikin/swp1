@@ -15,8 +15,10 @@ const { registerHandler } = require('../ipc-registry');
  * @param {TaskManager} taskManager - タスク管理インスタンス
  */
 function registerTaskAPI(ipcMain, taskManager) {
+  console.log('タスクAPI登録開始...');
   // タスク種類の一覧取得
   ipcMain.handle('get-task-types', async () => {
+    console.log('get-task-typesハンドラが呼び出されました');
     try {
       const types = taskManager.registry.getRegisteredTaskTypes();
       return {
@@ -37,6 +39,7 @@ function registerTaskAPI(ipcMain, taskManager) {
 
   // タスク作成
   ipcMain.handle('create-task', async (event, type, params = {}) => {
+    console.log('create-taskハンドラが呼び出されました');
     try {
       // パラメータを正規化
       const taskParams = {
@@ -57,6 +60,7 @@ function registerTaskAPI(ipcMain, taskManager) {
 
   // 一括タスク作成
   ipcMain.handle('create-task-batch', async (event, taskConfigs) => {
+    console.log('create-task-batchハンドラが呼び出されました');
     try {
       if (!Array.isArray(taskConfigs) || taskConfigs.length === 0) {
         throw new Error('有効なタスク設定が指定されていません');
@@ -79,6 +83,7 @@ function registerTaskAPI(ipcMain, taskManager) {
 
   // タスク状態取得
   ipcMain.handle('get-task-status', async (event, taskId) => {
+    console.log('get-task-statusハンドラが呼び出されました');
     try {
       const task = taskManager.getTaskById(taskId);
       if (!task) {
@@ -103,6 +108,7 @@ function registerTaskAPI(ipcMain, taskManager) {
 
   // タスク結果取得
   ipcMain.handle('get-task-result', async (event, taskId) => {
+    console.log('get-task-resultハンドラが呼び出されました');
     try {
       const task = taskManager.getTaskById(taskId);
       if (!task) {
@@ -137,6 +143,7 @@ function registerTaskAPI(ipcMain, taskManager) {
 
   // 複数タスクの状態一括取得
   ipcMain.handle('get-multiple-task-status', async (event, taskIds) => {
+    console.log('get-multiple-task-statusハンドラが呼び出されました');
     try {
       if (!Array.isArray(taskIds)) {
         return {
@@ -166,6 +173,7 @@ function registerTaskAPI(ipcMain, taskManager) {
 
   // メディアパスからタスク検索
   ipcMain.handle('find-tasks-by-media', async (event, mediaPath, type = null) => {
+    console.log('find-tasks-by-mediaハンドラが呼び出されました');
     try {
       if (!mediaPath) {
         return {
@@ -191,6 +199,7 @@ function registerTaskAPI(ipcMain, taskManager) {
 
   // タスクタイプによる検索
   ipcMain.handle('find-tasks-by-type', async (event, type) => {
+    console.log('find-tasks-by-typeハンドラが呼び出されました');
     try {
       if (!type) {
         return {
@@ -216,6 +225,7 @@ function registerTaskAPI(ipcMain, taskManager) {
 
   // タスクキャンセル
   ipcMain.handle('cancel-task', async (event, taskId) => {
+    console.log('cancel-taskハンドラが呼び出されました');
     try {
       if (!taskId) {
         return {
@@ -237,6 +247,7 @@ function registerTaskAPI(ipcMain, taskManager) {
 
   // 複数タスクのキャンセル
   ipcMain.handle('cancel-multiple-tasks', async (event, taskIds) => {
+    console.log('cancel-multiple-tasksハンドラが呼び出されました');
     try {
       if (!Array.isArray(taskIds) || taskIds.length === 0) {
         return {
@@ -279,6 +290,7 @@ function registerTaskAPI(ipcMain, taskManager) {
 
   // タスク一時停止
   ipcMain.handle('pause-task', async (event, taskId) => {
+    console.log('pause-taskハンドラが呼び出されました');
     try {
       const task = taskManager.getTaskById(taskId);
       if (!task) {
@@ -310,6 +322,7 @@ function registerTaskAPI(ipcMain, taskManager) {
 
   // タスク再開
   ipcMain.handle('resume-task', async (event, taskId) => {
+    console.log('resume-taskハンドラが呼び出されました');
     try {
       const task = taskManager.getTaskById(taskId);
       if (!task) {
@@ -341,6 +354,7 @@ function registerTaskAPI(ipcMain, taskManager) {
 
   // すべてのタスク取得
   ipcMain.handle('get-all-tasks', async () => {
+    console.log('get-all-tasksハンドラが呼び出されました');
     try {
       const tasks = taskManager.getAllTasks();
       return {
@@ -358,6 +372,7 @@ function registerTaskAPI(ipcMain, taskManager) {
 
   // タスク依存関係の取得
   ipcMain.handle('get-task-dependencies', async (event, taskId) => {
+    console.log('get-task-dependenciesハンドラが呼び出されました');
     try {
       if (!taskManager.taskDependencies.has(taskId)) {
         return {
@@ -388,6 +403,7 @@ function registerTaskAPI(ipcMain, taskManager) {
 
   // タスク子関係の取得
   ipcMain.handle('get-task-children', async (event, taskId) => {
+    console.log('get-task-childrenハンドラが呼び出されました');
     try {
       if (!taskManager.taskChildren.has(taskId)) {
         return {
@@ -418,6 +434,7 @@ function registerTaskAPI(ipcMain, taskManager) {
 
   // 古いタスクをクリーンアップ
   ipcMain.handle('cleanup-old-tasks', async (event, maxAgeInDays = 7) => {
+    console.log('cleanup-old-tasksハンドラが呼び出されました');
     try {
       const cleanedCount = taskManager.cleanupOldTasks(maxAgeInDays);
       return {
@@ -435,6 +452,7 @@ function registerTaskAPI(ipcMain, taskManager) {
 
   // メディアパスからタスクID取得（互換性維持用）
   ipcMain.handle('get-task-id-by-media-path', async (event, mediaPath, type) => {
+    console.log('get-task-id-by-media-pathハンドラが呼び出されました');
     try {
       if (!mediaPath) {
         return { success: false, error: 'メディアパスが指定されていません' };
@@ -497,6 +515,7 @@ function registerTaskAPI(ipcMain, taskManager) {
 
   // 波形データ取得（改良版）
   ipcMain.handle('get-waveform-data', async (event, taskId) => {
+    console.log('get-waveform-dataハンドラが呼び出されました');
     console.log(`波形データ取得リクエスト受信 - タスクID: ${taskId}`);
     
     if (!taskId) {
@@ -618,6 +637,7 @@ function registerTaskAPI(ipcMain, taskManager) {
 
   // ラウドネス測定（既存API互換）
   ipcMain.handle('measure-loudness', async (event, params) => {
+    console.log('measure-loudnessハンドラが呼び出されました');
     try {
       // paramsが文字列の場合は従来の形式（ファイルパスのみ）として扱う
       let mediaPath, fileId;
@@ -683,7 +703,7 @@ function registerTaskAPI(ipcMain, taskManager) {
         };
       }
       
-      // 処理中のタスクがあれば待機するよう伝える
+      // 処理中タスクがあれば待機するよう伝える
       const processingTask = tasks.find(t => 
         t.status === 'processing' || t.status === 'pending'
       );
@@ -724,6 +744,7 @@ function registerTaskAPI(ipcMain, taskManager) {
 
   // 波形生成（既存API互換）
   ipcMain.handle('generate-waveform', async (event, mediaPath) => {
+    console.log('generate-waveformハンドラが呼び出されました');
     try {
       if (!mediaPath) {
         return { success: false, error: 'メディアパスが指定されていません' };
@@ -767,17 +788,19 @@ function registerTaskAPI(ipcMain, taskManager) {
     }
   });
 
-  // サムネイル生成（既存API互換）
+  // サムネイル生成
   ipcMain.handle('generate-thumbnail', async (event, params) => {
+    console.log('generate-thumbnailハンドラが呼び出されました');
     try {
-      // params が文字列の場合は従来の形式（ファイルパスのみ）として扱う
-      let mediaPath, fileId, options = {};
+      let mediaPath = null;
+      let fileId = null;
+      let options = {};
       
       if (typeof params === 'string') {
         mediaPath = params;
       } else if (typeof params === 'object' && params !== null) {
         // 新しい形式: { filePath: string, fileId: string, ... }
-        mediaPath = params.filePath;
+        mediaPath = params.path || params.filePath;
         fileId = params.fileId;
         options = params;
       } else {
@@ -788,51 +811,138 @@ function registerTaskAPI(ipcMain, taskManager) {
         return { success: false, error: 'メディアパスが指定されていません' };
       }
       
-      console.log('サムネイル生成リクエスト:', { mediaPath, fileId, options });
+      // 詳細なデバッグログを追加
+      console.log('サムネイル生成リクエスト詳細:', { 
+        mediaPath, 
+        fileId, 
+        options,
+        path: options.path,
+        timePosition: options.timePosition || 0,
+        width: options.width || 320,
+        height: options.height || -1
+      });
       
       const timePosition = options.timePosition || 0;
       
       // 既存のサムネイルタスクを探す（同じ時間位置）
       const tasks = taskManager.getTasksByMedia(mediaPath, 'thumbnail');
+      console.log(`既存のサムネイルタスク検索結果: ${tasks.length}件`);
+      
       const existingTask = tasks.find(t => 
         t.status === 'completed' && 
-        t.timePosition === timePosition
+        Math.abs(t.timePosition - timePosition) < 0.5  // 0.5秒の誤差を許容
       );
       
       // 完了済みタスクがあればそのファイルパスを返す
       if (existingTask && existingTask.status === 'completed' && existingTask.data && existingTask.data.filePath) {
         console.log('既存のサムネイルを返します:', existingTask.data.filePath);
-        return existingTask.data.filePath;
+        
+        // ファイルの存在確認
+        if (fs.existsSync(existingTask.data.filePath)) {
+          console.log('既存サムネイルファイルは存在します');
+          return {
+            success: true,
+            taskId: existingTask.id,
+            filePath: existingTask.data.filePath,
+            status: 'completed'
+          };
+        } else {
+          console.log('既存サムネイルファイルは存在しません。新しく生成します。');
+        }
       }
       
       // 進行中のタスクがあれば待機するよう伝える
       const pendingTask = tasks.find(t => 
         (t.status === 'processing' || t.status === 'pending') &&
-        t.timePosition === timePosition
+        Math.abs(t.timePosition - timePosition) < 0.5
       );
       
       if (pendingTask) {
         console.log('進行中のサムネイルタスクを返します:', pendingTask.id);
         return { 
+          success: true,
           taskId: pendingTask.id,
           status: pendingTask.status,
           pending: true
         };
       }
       
+      // メディアファイルが存在するかのチェックを追加
+      const mediaFileExists = fs.existsSync(mediaPath);
+      console.log(`メディアファイル存在確認: ${mediaPath} - ${mediaFileExists ? '存在します' : '存在しません'}`);
+      
+      if (!mediaFileExists) {
+        console.error(`メディアファイルが存在しません: ${mediaPath}`);
+        return { 
+          success: false, 
+          error: 'メディアファイルが存在しません' 
+        };
+      }
+      
+      // サムネイルの出力先を確認
+      const homeDir = require('os').homedir();
+      const outputDir = path.join(homeDir, 'Super Watarec', 'thumbnails');
+      
+      // 出力ディレクトリの存在確認
+      if (!fs.existsSync(outputDir)) {
+        console.log(`サムネイル出力ディレクトリを作成します: ${outputDir}`);
+        fs.mkdirSync(outputDir, { recursive: true });
+      }
+      
       // 新しいタスクを作成
-      const taskId = taskManager.createTask({
+      const taskParams = {
         type: 'thumbnail',
         mediaPath,
         fileId, // メディアIDを追加
         timePosition: options.timePosition || 0,
-        size: options.size || '320x240'
-      });
+        thumbnailWidth: options.width || 320,
+        thumbnailHeight: options.height || -1
+      };
       
-      console.log('新しいサムネイルタスクを作成:', taskId);
+      console.log('新しいサムネイルタスクを作成します:', taskParams);
+      const taskId = taskManager.createTask(taskParams);
+      
+      console.log('新しいサムネイルタスクを作成しました:', taskId);
+      
+      // 重要：タスクを確実に即時実行
+      const task = taskManager.getTaskById(taskId);
+      if (!task) {
+        console.error('作成したタスクが見つかりません:', taskId);
+        return { 
+          success: false, 
+          error: '作成したタスクが見つかりません' 
+        };
+      }
+      
+      console.log('サムネイルタスクを実行します:', taskId);
+      
+      // 同期的にタスクを実行開始
+      try {
+        // タスクがキューに追加されるようにステータスをpendingに設定
+        if (task && task.status === 'created') {
+          // タスクを実行可能状態に設定し、キューに追加されるようにする
+          task.setPending();
+          console.log(`サムネイルタスク ${taskId} を実行キューに追加しました`);
+          
+          // タスクマネージャーにタスク更新を通知
+          taskManager.emitTasksUpdated();
+        } else {
+          console.log(`サムネイルタスク ${taskId} はすでに実行中または完了しています。状態: ${task ? task.status : '不明'}`);
+        }
+        
+        console.log('サムネイルタスク実行を開始しました:', taskId);
+      } catch (execError) {
+        console.error('サムネイルタスク実行開始エラー:', execError);
+        return { 
+          success: false, 
+          error: `タスク実行エラー: ${execError.message}`,
+          taskId 
+        };
+      }
       
       // タスクIDを返す（ペンディング状態を明示）
       return { 
+        success: true,
         taskId,
         status: 'pending',
         pending: true 

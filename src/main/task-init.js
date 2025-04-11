@@ -13,7 +13,7 @@ const TaskManager = require(path.join(__dirname, 'core/task-manager'));
 const WaveformTask = require(path.join(__dirname, 'tasks/waveform-task'));
 const LoudnessTask = require(path.join(__dirname, 'tasks/loudness-task'));
 const ThumbnailTask = require(path.join(__dirname, 'tasks/thumbnail-task'));
-const ffmpegService = require(path.join(__dirname, 'services/ffmpeg-service'));
+const ffmpegService = require(path.join(__dirname, 'services/ffmpeg/index'));
 const storageService = require(path.join(__dirname, 'services/storage-service'));
 const { app, BrowserWindow, ipcMain } = require('electron');
 
