@@ -68,9 +68,9 @@ const MediaItem: React.FC<MediaItemProps> = ({
               <div className="loudness-info">
                 <div className="loudness-value">
                   ラウドネス: {media.lufs.toFixed(1)} LUFS
-                  {media.lufsGain !== undefined && (
-                    <span className={media.lufsGain > 0 ? 'gain-positive' : 'gain-negative'}>
-                      {media.lufsGain > 0 ? '+' : ''}{media.lufsGain.toFixed(1)}dB
+                  {media.lufs !== undefined && (
+                    <span className={-14 - media.lufs > 0 ? 'gain-positive' : 'gain-negative'}>
+                      {-14 - media.lufs > 0 ? '+' : ''}{(-14 - media.lufs).toFixed(1)}dB
                     </span>
                   )}
                 </div>
