@@ -60,8 +60,18 @@ export interface TaskContextActions {
   ) => Promise<TaskResult | null> | void;
 }
 
+// タスクコンテキストのヘルパー関数
+export interface TaskContextHelpers {
+  // タスクが処理中かどうかを判断する関数
+  isTaskActive: (task: Task) => boolean;
+  // 処理中のタスク一覧を取得する関数
+  getActiveTasks: () => Task[];
+  // 特定のタスクの進捗を取得する関数
+  getTaskProgress: (taskId: string) => number;
+}
+
 // タスクコンテキストの最終型
-export interface TaskContextValue extends TaskContextState, TaskContextActions {}
+export interface TaskContextValue extends TaskContextState, TaskContextActions, TaskContextHelpers {}
 
 // タスクAPIレスポンス型（electron.d.ts と互換性を持たせるための型）
 export interface TaskStatusResponse {

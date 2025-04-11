@@ -19,11 +19,40 @@ const defaultTaskContextValue: TaskContextValue = {
   fetchTaskStatus: async () => null,
   getTaskResult: async () => null,
   cancelTask: async () => false,
-  monitorTaskStatus: () => {}
+  monitorTaskStatus: () => {},
+  
+  // ヘルパー関数
+  isTaskActive: () => false, // デフォルトでは非アクティブ
+  getActiveTasks: () => [], // デフォルトでは空配列
+  getTaskProgress: () => 0, // デフォルトでは0%
 };
 
 // コンテキスト作成
 export const TaskContext = createContext<TaskContextValue>(defaultTaskContextValue);
+
+/**
+ * タスクが処理中かどうかを判断する関数
+ * 処理中の判断基準：
+ * 1. ステータスが running/pending/processing のいずれか
+ * 2. completedAt が設定されていない
+ * 3. progress が 100% 未満
+ */
+export const isTaskActive = (task: Task): boolean => {
+  // 完了時刻がなければ処理中と判断
+  const notCompletedYet = !task.completedAt;
+  
+  // ステータス文字列による判断
+  const statusStr = String(task.status || '').toLowerCase();
+  const hasActiveStatus = 
+    statusStr === 'running' || 
+    statusStr === 'pending' || 
+    statusStr === 'processing';
+  
+  // 進捗が100%未満なら処理中と判断
+  const isInProgress = (task.progress !== undefined && task.progress < 100);
+  
+  return notCompletedYet || hasActiveStatus || isInProgress;
+};
 
 /**
  * タスク管理プロバイダーコンポーネント
@@ -107,7 +136,7 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setTaskStatus(statusMap);
         
         // アクティブなタスク数と全体の進捗状況を更新
-        const activeCount = typedTasks.filter(task => task.status === 'running' || task.status === 'pending').length;
+        const activeCount = typedTasks.filter(isTaskActive).length;
         const overallProgressValue = typedTasks.reduce((acc, task) => acc + task.progress, 0) / typedTasks.length;
         setActiveTaskCount(activeCount);
         setOverallProgress(overallProgressValue);
@@ -397,7 +426,7 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
         setTaskStatus(statusMap);
         
         // アクティブなタスク数と全体の進捗状況を更新
-        const activeCount = typedTasks.filter(task => task.status === 'running' || task.status === 'pending').length;
+        const activeCount = typedTasks.filter(isTaskActive).length;
         const overallProgressValue = typedTasks.reduce((acc, task) => acc + task.progress, 0) / typedTasks.length;
         setActiveTaskCount(activeCount);
         setOverallProgress(overallProgressValue);
@@ -445,7 +474,15 @@ export const TaskProvider: React.FC<{ children: React.ReactNode }> = ({ children
     fetchTaskStatus,
     getTaskResult,
     cancelTask,
-    monitorTaskStatus
+    monitorTaskStatus,
+    
+    // ヘルパー関数
+    isTaskActive, // タスクが処理中かどうかを判断する関数
+    getActiveTasks: () => tasks.filter(isTaskActive), // 処理中のタスク一覧を取得する関数
+    getTaskProgress: (taskId: string) => { // 特定のタスクの進捗を取得する関数
+      const task = tasks.find(t => t.id === taskId);
+      return task ? task.progress || 0 : 0;
+    }
   };
 
   return (
