@@ -41,21 +41,6 @@ const FooterTaskBar: React.FC<FooterTaskBarProps> = ({
   // タスクが存在するかどうか
   const hasTasks = tasks.length > 0;
   
-  // 開発環境でのみタスクの詳細情報をログ出力
-  if (process.env.NODE_ENV === 'development') {
-    console.warn('FooterTaskBar - タスク詳細情報:', {
-      tasksCount: tasks.length,
-      tasksList: tasks.map(task => ({
-        id: task.id.slice(0, 8),
-        type: task.type,
-        status: task.status,
-        progress: task.progress || 0,
-        completedAt: task.completedAt,
-        isActive: isTaskActive(task)
-      }))
-    });
-  }
-  
   // TaskContextから処理中タスクを取得
   const activeTasks = getActiveTasks();
   
@@ -78,22 +63,6 @@ const FooterTaskBar: React.FC<FooterTaskBarProps> = ({
   
   // タスク状態が変更されたときに内部状態を更新
   useEffect(() => {
-    // 開発環境でのみタスク状態変更時にログ出力
-    if (process.env.NODE_ENV === 'development') {
-      console.warn('FooterTaskBar - タスク状態更新:', {
-        tasksCount: tasks.length,
-        hasTasks,
-        activeTasksCount: activeTasks.length,
-        activeTaskCount,
-        activeTasksExist,
-        hasActiveTasks,
-        forceShowProgress,
-        overallProgress,
-        calculatedProgress,
-        displayProgress
-      });
-    }
-    
     // 内部状態を更新
     setIsProcessingTasks(forceShowProgress);
     setProgressValue(displayProgress || 0);
