@@ -17,22 +17,13 @@ interface TaskDetailsPanelProps {
  */
 const TaskDetailsPanel: React.FC<TaskDetailsPanelProps> = ({ open, onClose }) => {
   // タスク情報をコンテキストから取得
-  const { tasks = [] } = useTasks();
+  const { tasks = [], getActiveTasks, isTaskActive } = useTasks();
   
-  // デバッグ用：TaskContextから取得したタスクデータの確認
-  console.log('TaskDetailsPanel: タスク一覧データ', tasks.map(task => ({
-    id: task.id,
-    type: task.type,
-    status: task.status,
-    createdAt: task.createdAt,
-    completedAt: task.completedAt,
-    hasEndTime: task.data?.endTime ? true : false
-  })));
+  // 標準化されたAPIを使用してアクティブなタスクを取得
+  const activeTasks = getActiveTasks();
   
-  // アクティブなタスク数を計算
-  const activeTaskCount = tasks.filter(
-    task => task.status === 'pending' || task.status === 'processing'
-  ).length;
+  // アクティブなタスク数
+  const activeTaskCount = activeTasks.length;
   
   // 完了したタスク数
   const completedCount = tasks.filter(task => task.status === 'completed').length;
