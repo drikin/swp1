@@ -109,8 +109,19 @@ function registerExportHandlers() {
     const win = getMainWindow();
     if (!win) return { success: false, error: 'メインウィンドウが見つかりません' };
     
+    const taskManager = getTaskManager();
+    if (!taskManager) {
+      return { success: false, error: 'タスクマネージャーが利用できません' };
+    }
+    
     try {
-      // 進捗更新関数
+      console.log('書き出しリクエスト受信:', JSON.stringify({
+        mediaFilesCount: options.mediaFiles ? options.mediaFiles.length : 0,
+        outputPath: options.outputPath,
+        settings: options.settings
+      }));
+      
+      // 進捗更新用の関数を定義
       const updateProgress = (current, total, stage) => {
         const percentage = Math.round((current / total) * 100);
         win.webContents.send('export-progress', {
@@ -121,12 +132,71 @@ function registerExportHandlers() {
         });
       };
       
-      // エクスポート処理の実装
-      // 複雑なので実装は省略し、必要に応じて別ファイルに分割することを推奨
-      return { success: true, message: 'エクスポート処理は別モジュールに移動しました' };
+      // ExportTaskを作成して実行
+      const taskId = taskManager.createTask({
+        type: 'export',
+        mediaFiles: options.mediaFiles,
+        outputPath: options.outputPath,
+        settings: options.settings,
+        priority: 'HIGH'
+      });
+      
+      console.log(`書き出しタスクを作成しました: ${taskId}`);
+      
+      // タスク状態変化を購読して進捗を更新
+      const progressListener = (task) => {
+        if (task.id === taskId) {
+          const taskData = task.toJSON();
+          
+          // 進捗状況を更新
+          updateProgress(
+            taskData.processedFiles || 0, 
+            options.mediaFiles.length, 
+            taskData.details?.phase || 'converting'
+          );
+          
+          // タスクが完了していたら購読解除
+          if (taskData.status === 'completed' || taskData.status === 'failed' || taskData.status === 'cancelled') {
+            taskManager.eventEmitter.off('task-updated', progressListener);
+          }
+        }
+      };
+      
+      // タスク更新イベントを購読
+      taskManager.eventEmitter.on('task-updated', progressListener);
+      
+      // タスク完了を待機
+      const waitForCompletion = () => new Promise((resolve) => {
+        const completionListener = (task) => {
+          if (task.id === taskId) {
+            const result = task.data;
+            taskManager.eventEmitter.off('taskCompleted', completionListener);
+            taskManager.eventEmitter.off('taskFailed', failureListener);
+            resolve(result);
+          }
+        };
+        
+        const failureListener = (task) => {
+          if (task.id === taskId) {
+            const error = task.error || '書き出しに失敗しました';
+            taskManager.eventEmitter.off('taskCompleted', completionListener);
+            taskManager.eventEmitter.off('taskFailed', failureListener);
+            resolve({ success: false, error });
+          }
+        };
+        
+        taskManager.eventEmitter.on('taskCompleted', completionListener);
+        taskManager.eventEmitter.on('taskFailed', failureListener);
+      });
+      
+      // タスク完了を待機して結果を返す
+      const taskResult = await waitForCompletion();
+      console.log('書き出しタスク結果:', taskResult);
+      
+      return taskResult || { success: false, error: '不明なエラーが発生しました' };
     } catch (error) {
       console.error('動画結合処理エラー:', error);
-      return { success: false, error: error.message };
+      return { success: false, error: error.message || '書き出し中にエラーが発生しました' };
     }
   });
   

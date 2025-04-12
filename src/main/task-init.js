@@ -13,6 +13,7 @@ const TaskManager = require(path.join(__dirname, 'core/task-manager'));
 const WaveformTask = require(path.join(__dirname, 'tasks/waveform-task'));
 const LoudnessTask = require(path.join(__dirname, 'tasks/loudness-task'));
 const ThumbnailTask = require(path.join(__dirname, 'tasks/thumbnail-task'));
+const ExportTask = require(path.join(__dirname, 'tasks/export-task'));
 const ffmpegService = require(path.join(__dirname, 'services/ffmpeg/index'));
 const storageService = require(path.join(__dirname, 'services/storage-service'));
 const { app, BrowserWindow, ipcMain } = require('electron');
@@ -104,6 +105,19 @@ function registerTaskTypes(registry) {
       allowedMediaTypes: ['video']
     },
     params => new ThumbnailTask(params),
+    task => task.data
+  );
+  
+  // 動画書き出しタスク
+  registry.registerTaskType(
+    'export',
+    {
+      name: '動画書き出し',
+      description: '複数の動画を結合して一つの動画ファイルに書き出します',
+      icon: 'export-icon',
+      allowedMediaTypes: ['video']
+    },
+    params => new ExportTask(params),
     task => task.data
   );
 }
