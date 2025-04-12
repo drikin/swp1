@@ -49,12 +49,14 @@ export interface ThumbnailGenerateResponse {
 
 // 波形データレスポンス
 export interface WaveformDataResponse {
-  success?: boolean;
-  data?: {
-    waveform?: number[];
-  } | number[];
-  waveform?: number[];
+  success: boolean;
   taskId?: string;
+  error?: string; // エラーメッセージを追加
+  data?: {
+    waveform: number[];
+    duration?: number;
+  };
+  waveform?: number[]; // 古い形式との互換性のため残す
 }
 
 // メディアコンテキストの状態

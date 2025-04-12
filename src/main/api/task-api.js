@@ -43,6 +43,11 @@ function registerTaskAPI(ipcMain, taskManager) {
   // タスク作成
   ipcMain.handle('create-task', async (event, type, params = {}) => {
     console.log('create-taskハンドラが呼び出されました');
+    console.log('受信したtypeパラメータ:', type);
+    console.log('typeの型:', typeof type);
+    console.log('受信したparamsパラメータ:', params);
+    console.log('paramsの型:', typeof params);
+    
     try {
       // パラメータを正規化
       const taskParams = {
@@ -50,7 +55,9 @@ function registerTaskAPI(ipcMain, taskManager) {
         ...params
       };
       
+      console.log('タスク作成に使用するパラメータ:', taskParams);
       const taskId = taskManager.createTask(taskParams);
+      console.log('作成されたタスクID:', taskId);
       return { success: true, taskId };
     } catch (error) {
       console.error('タスク作成エラー:', error);

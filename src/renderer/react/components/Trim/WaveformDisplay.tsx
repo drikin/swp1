@@ -179,6 +179,14 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
         ctx.moveTo(x, 0);
         ctx.lineTo(x, canvasSize.height);
         ctx.stroke();
+        
+        // 時間マーカーのラベルを描画（上部）
+        if (i > 0 && i < duration) {
+          ctx.fillStyle = 'rgba(150, 150, 150, 0.7)';
+          ctx.font = '10px Arial';
+          ctx.textAlign = 'center';
+          ctx.fillText(formatTime(i), x, 14);
+        }
       }
       
       // トリム範囲を色付きで表示
@@ -417,101 +425,128 @@ const WaveformDisplay: React.FC<WaveformDisplayProps> = ({
         height: '100%', 
         position: 'relative',
         userSelect: 'none',
-        bgcolor: 'background.paper', // paperに変更して背景を明るく
+        bgcolor: 'background.paper',
         borderRadius: 1,
         overflow: 'hidden',
-        minHeight: '150px', // 最小の高さを設定
         display: 'flex',
-        flexDirection: 'column',
-        justifyContent: 'center'
+        flexDirection: 'column'
       }}
     >
-      <canvas
-        ref={canvasRef}
-        style={{
-          width: '100%',
-          height: '100%',
-          cursor: isResizing ? 'col-resize' : (seeking ? 'grabbing' : 'crosshair'),
-          backgroundColor: '#444444' // 仮の背景色を追加して視認性を確保
-        }}
-        onMouseDown={handleMouseDown}
-        onMouseMove={handleMouseMove}
-        onMouseUp={handleMouseUp}
-        onMouseLeave={handleMouseUp}
-      />
-
-      {/* キャンバスサイズのデバッグ表示 */}
-      <Box sx={{ 
-        position: 'absolute', 
-        top: 5, 
-        right: 5, 
-        zIndex: 100, 
-        bgcolor: 'rgba(0,0,0,0.6)', 
-        color: 'white', 
-        p: 0.5,
-        borderRadius: 1,
-        fontSize: '8px'
-      }}>
-        Canvas: {canvasSize.width}x{canvasSize.height}
-      </Box>
-
-      {/* 時間表示 */}
-      <Box sx={{ 
-        display: 'flex', 
-        justifyContent: 'space-between', 
-        position: 'absolute',
-        bottom: '8px',
-        left: '12px',
-        right: '12px',
-        pointerEvents: 'none',
-        px: 1,
-        py: 0.5,
-        bgcolor: 'rgba(0, 0, 0, 0.5)',
-        borderRadius: 1,
-      }}>
-        <Typography variant="caption" sx={{ color: '#fff', fontWeight: 'medium', fontSize: '0.7rem' }}>
-          {formatTime(0)}
-        </Typography>
-        <Typography variant="caption" sx={{ color: '#fff', fontWeight: 'medium', fontSize: '0.7rem' }}>
-          {formatTime(duration)}
-        </Typography>
-      </Box>
-
-      {/* 現在の時間表示 */}
-      <Box sx={{ 
-        position: 'absolute',
-        top: '8px',
-        left: '12px',
-        pointerEvents: 'none',
-        px: 1,
-        py: 0.5,
-        bgcolor: 'rgba(0, 0, 0, 0.5)',
-        borderRadius: 1,
-        display: 'inline-flex',
+      {/* 情報表示領域 - 上部固定エリア */}
+      <Box sx={{
+        display: 'flex',
+        justifyContent: 'space-between',
         alignItems: 'center',
+        px: 1,
+        py: 0.3,
+        borderBottom: '1px solid rgba(0,0,0,0.1)',
+        bgcolor: theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.3)' : 'rgba(240,240,240,0.8)',
+        height: '22px', // 高さを固定
+        zIndex: 5
       }}>
-        <Typography variant="caption" sx={{ color: '#fff', fontWeight: 'medium', fontSize: '0.7rem' }}>
-          {formatTime(currentTime)}
-        </Typography>
-      </Box>
-
-      {/* トリム時間表示 */}
-      {trimStart !== null && trimEnd !== null && (
-        <Box sx={{ 
-          position: 'absolute',
-          top: '8px',
-          right: '12px',
-          pointerEvents: 'none',
-          px: 1,
-          py: 0.5,
-          bgcolor: 'rgba(0, 120, 215, 0.7)',
-          borderRadius: 1,
-        }}>
-          <Typography variant="caption" sx={{ color: '#fff', fontWeight: 'medium', fontSize: '0.7rem' }}>
-            {formatTime(trimEnd - trimStart)}
+        {/* 左側 - 現在時間表示 */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          <Typography variant="caption" sx={{ 
+            fontWeight: 'medium', 
+            fontSize: '0.7rem',
+            color: theme.palette.text.secondary 
+          }}>
+            現在位置: {formatTime(currentTime)}
           </Typography>
         </Box>
-      )}
+        
+        {/* 右側 - トリム情報 */}
+        <Box sx={{ display: 'flex', alignItems: 'center', gap: 0.5 }}>
+          {trimStart !== null && trimEnd !== null ? (
+            <Typography variant="caption" sx={{ 
+              fontWeight: 'medium', 
+              fontSize: '0.7rem',
+              color: theme.palette.primary.main
+            }}>
+              {formatTime(trimStart)} - {formatTime(trimEnd)} ({formatTime(trimEnd - trimStart)})
+            </Typography>
+          ) : (
+            <Typography variant="caption" sx={{ 
+              fontWeight: 'medium', 
+              fontSize: '0.7rem',
+              color: theme.palette.text.secondary
+            }}>
+              トリム未設定
+            </Typography>
+          )}
+        </Box>
+      </Box>
+
+      {/* 波形表示エリア - メインコンテンツ */}
+      <Box sx={{
+        position: 'relative',
+        flex: 1,
+        minHeight: '120px',
+        height: 'calc(100% - 40px)', // 上下の情報表示エリアの高さを引いた値
+        overflow: 'hidden' // 波形が切れないように
+      }}>
+        <canvas
+          ref={canvasRef}
+          style={{
+            position: 'absolute',
+            top: 0,
+            left: 0,
+            width: '100%',
+            height: '100%',
+            cursor: isResizing ? 'col-resize' : (seeking ? 'grabbing' : 'crosshair')
+          }}
+          onMouseDown={handleMouseDown}
+          onMouseMove={handleMouseMove}
+          onMouseUp={handleMouseUp}
+          onMouseLeave={handleMouseUp}
+        />
+
+        {/* デバッグ情報 - 開発時のみ表示 */}
+        <Box sx={{ 
+          position: 'absolute', 
+          top: 5, 
+          right: 5, 
+          zIndex: 4, 
+          bgcolor: 'rgba(0,0,0,0.5)', 
+          color: 'white', 
+          p: 0.3,
+          borderRadius: 1,
+          fontSize: '0.6rem',
+          opacity: 0.5
+        }}>
+          Canvas: {canvasSize.width}x{canvasSize.height}
+        </Box>
+      </Box>
+
+      {/* 時間目盛り表示 - 下部固定エリア */}
+      <Box sx={{
+        display: 'flex',
+        justifyContent: 'space-between',
+        alignItems: 'center',
+        px: 1,
+        py: 0.3,
+        borderTop: '1px solid rgba(0,0,0,0.1)',
+        bgcolor: theme.palette.mode === 'dark' ? 'rgba(0,0,0,0.3)' : 'rgba(240,240,240,0.8)',
+        height: '18px', // 高さを固定
+        zIndex: 5,
+        fontSize: '0.65rem'
+      }}>
+        <Typography variant="caption" sx={{ 
+          fontWeight: 'medium', 
+          fontSize: '0.65rem',
+          color: theme.palette.text.secondary
+        }}>
+          {formatTime(0)}
+        </Typography>
+        
+        <Typography variant="caption" sx={{ 
+          fontWeight: 'medium', 
+          fontSize: '0.65rem',
+          color: theme.palette.text.secondary
+        }}>
+          合計: {formatTime(duration)}
+        </Typography>
+      </Box>
     </Box>
   );
 };

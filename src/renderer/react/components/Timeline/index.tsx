@@ -62,7 +62,6 @@ const TimelinePane: React.FC<TimelinePaneProps> = ({
    * ラウドネス測定結果を処理する関数
    */
   const handleLoudnessMeasured = useCallback((result: any) => {
-    console.log('🔊 ラウドネス測定結果を受信:', JSON.stringify(result, null, 2));
     
     if (!result || !result.taskId || !result.loudness) {
       console.error('❌ 無効なラウドネス測定結果:', result);

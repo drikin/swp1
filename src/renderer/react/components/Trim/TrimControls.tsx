@@ -56,11 +56,6 @@ const TrimControls: React.FC<TrimControlsProps> = ({
     onResetTrim();
   };
   
-  // トリム範囲の表示
-  const trimRange = trimStart !== null && trimEnd !== null
-    ? `${formatTime(trimStart)} - ${formatTime(trimEnd)} (${formatTime(trimEnd - trimStart)})`
-    : '設定されていません';
-  
   return (
     <Box sx={{ p: 1.5, display: 'flex', flexDirection: 'column', gap: 1 }}>
       <Box sx={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', mb: 1 }}>
@@ -73,98 +68,67 @@ const TrimControls: React.FC<TrimControlsProps> = ({
         </Typography>
       </Box>
       
-      <Box sx={{ display: 'flex', gap: 1, flexWrap: 'wrap', alignItems: 'center' }}>
-        <ButtonGroup variant="outlined" size="small">
-          <Tooltip title="開始点をセット">
-            <Button 
-              onClick={handleSetTrimStart}
-              disabled={currentTime >= (trimEnd ?? Infinity)}
-              startIcon={<ArrowBack fontSize="small" />}
-              sx={{ fontSize: '0.75rem' }}
-            >
-              IN点
-            </Button>
-          </Tooltip>
+      <Box sx={{ 
+        display: 'flex', 
+        alignItems: 'center', 
+        justifyContent: 'space-between',
+        height: '32px' // 高さを固定して動的な変化を防止
+      }}>
+        <Box sx={{ display: 'flex', gap: 1, alignItems: 'center' }}>
+          <ButtonGroup variant="outlined" size="small">
+            <Tooltip title="開始点をセット">
+              <Button 
+                onClick={handleSetTrimStart}
+                disabled={currentTime >= (trimEnd ?? Infinity)}
+                startIcon={<ArrowBack fontSize="small" />}
+                sx={{ fontSize: '0.75rem' }}
+              >
+                IN{trimStart !== null ? `: ${formatTime(trimStart)}` : '点'}
+              </Button>
+            </Tooltip>
+            
+            <Tooltip title="終了点をセット">
+              <Button 
+                onClick={handleSetTrimEnd}
+                disabled={currentTime <= (trimStart ?? -1)}
+                endIcon={<ArrowForward fontSize="small" />}
+                sx={{ fontSize: '0.75rem' }}
+              >
+                OUT{trimEnd !== null ? `: ${formatTime(trimEnd)}` : '点'}
+              </Button>
+            </Tooltip>
+          </ButtonGroup>
           
-          <Tooltip title="終了点をセット">
-            <Button 
-              onClick={handleSetTrimEnd}
-              disabled={currentTime <= (trimStart ?? -1)}
-              endIcon={<ArrowForward fontSize="small" />}
-              sx={{ fontSize: '0.75rem' }}
-            >
-              OUT点
-            </Button>
+          <Tooltip title="リセット">
+            <span>
+              <IconButton 
+                size="small"
+                color="secondary" 
+                onClick={handleResetTrim}
+                disabled={trimStart === null && trimEnd === null}
+              >
+                <RestartAlt fontSize="small" />
+              </IconButton>
+            </span>
           </Tooltip>
-        </ButtonGroup>
+        </Box>
         
-        <Tooltip title="リセット">
-          <span>
-            <IconButton 
-              size="small"
-              color="secondary" 
-              onClick={handleResetTrim}
-              disabled={trimStart === null && trimEnd === null}
+        {/* トリム範囲を右側に表示 */}
+        {trimStart !== null && trimEnd !== null && (
+          <Box sx={{ display: 'flex', alignItems: 'center', gap: 1 }}>
+            <Divider orientation="vertical" flexItem />
+            <Typography 
+              variant="caption" 
+              color="primary.main"
+              sx={{ 
+                fontSize: '0.75rem',
+                fontWeight: 'medium',
+                whiteSpace: 'nowrap'
+              }}
             >
-              <RestartAlt fontSize="small" />
-            </IconButton>
-          </span>
-        </Tooltip>
-      </Box>
-      
-      <Box
-        sx={{
-          mt: 1,
-          p: 1,
-          borderRadius: 1,
-          bgcolor: 'action.hover',
-          display: 'flex',
-          flexDirection: 'column',
-          gap: 0.5
-        }}
-      >
-        <Typography 
-          variant="body2" 
-          color={trimStart !== null && trimEnd !== null ? 'primary' : 'text.secondary'}
-          sx={{ 
-            display: 'flex', 
-            justifyContent: 'space-between',
-            fontSize: '0.75rem',
-            fontWeight: trimStart !== null && trimEnd !== null ? 'medium' : 'regular'
-          }}
-        >
-          <span>トリム範囲:</span>
-          <span>{trimRange}</span>
-        </Typography>
-        
-        {trimStart !== null && trimEnd !== null && (
-          <Typography 
-            variant="body2" 
-            color="text.secondary"
-            sx={{ 
-              display: 'flex', 
-              justifyContent: 'space-between',
-              fontSize: '0.75rem' 
-            }}
-          >
-            <span>開始:</span>
-            <span>{formatTime(trimStart)}</span>
-          </Typography>
-        )}
-        
-        {trimStart !== null && trimEnd !== null && (
-          <Typography 
-            variant="body2" 
-            color="text.secondary"
-            sx={{ 
-              display: 'flex', 
-              justifyContent: 'space-between',
-              fontSize: '0.75rem' 
-            }}
-          >
-            <span>終了:</span>
-            <span>{formatTime(trimEnd)}</span>
-          </Typography>
+              長さ: {formatTime(trimEnd - trimStart)}
+            </Typography>
+          </Box>
         )}
       </Box>
     </Box>

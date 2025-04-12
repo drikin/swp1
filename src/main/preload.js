@@ -42,6 +42,7 @@ try {
     'get-task-status',     // タスク状態取得用チャンネル
     'get-task-id-by-media-path', // メディアパスからタスクID取得用チャンネル
     'get-waveform-data',   // 波形データ取得用チャンネル
+    'read-file',           // ファイル読み込み用チャンネル
     
     // 新しいタスク管理システムのAPI（追加）
     'create-task',         // 新規タスク作成

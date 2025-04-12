@@ -38,6 +38,23 @@ function registerIpcHandlers() {
     return app.getPath('desktop');
   });
   
+  // ファイル読み込みハンドラー
+  registerHandler(ipcMain, 'read-file', async (_, filePath) => {
+    const fs = require('fs').promises;
+    try {
+      if (!filePath) {
+        return { success: false, error: 'ファイルパスが指定されていません' };
+      }
+      
+      console.log(`ファイル読み込み: ${filePath}`);
+      const data = await fs.readFile(filePath, 'utf8');
+      return { success: true, data };
+    } catch (error) {
+      console.error(`ファイル読み込みエラー: ${filePath}`, error);
+      return { success: false, error: error.message };
+    }
+  });
+  
   // FFmpeg関連のハンドラー
   registerHandler(ipcMain, 'check-ffmpeg', async () => {
     // FFmpegサービスのヘルスチェック

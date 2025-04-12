@@ -1,6 +1,6 @@
 import React, { useState, useEffect, useCallback } from 'react';
 import { Box, Typography, CircularProgress, Paper, Divider, useTheme } from '@mui/material';
-import type { MediaFile } from '../../types';
+import type { MediaFile, MediaFileWithTaskIds } from '../../types/media';
 import { useWaveform } from '../../hooks';
 import WaveformDisplay from './WaveformDisplay';
 import TrimControls from './TrimControls';
@@ -25,7 +25,7 @@ const TrimPane: React.FC<TrimPaneProps> = ({
   const { 
     waveformData, 
     isLoadingWaveform, 
-    generateWaveform, 
+    getWaveformForMedia, 
     error: waveformError 
   } = useWaveform();
   
@@ -38,8 +38,18 @@ const TrimPane: React.FC<TrimPaneProps> = ({
   // メディアが変更されたときの処理
   useEffect(() => {
     if (selectedMedia) {
+      console.log('選択メディア変更：', {
+        id: selectedMedia.id,
+        path: selectedMedia.path,
+        duration: selectedMedia.duration,
+        trimStart: selectedMedia.trimStart,
+        trimEnd: selectedMedia.trimEnd
+      });
+      
       // 動画の長さを設定
-      setDuration(selectedMedia.duration || 0);
+      const mediaDuration = selectedMedia.duration || 0;
+      console.log(`duration設定: ${mediaDuration}秒`);
+      setDuration(mediaDuration);
       
       // すでに設定されているトリムポイントがあれば反映
       setTrimStart(selectedMedia.trimStart !== undefined ? selectedMedia.trimStart : null);
@@ -59,7 +69,16 @@ const TrimPane: React.FC<TrimPaneProps> = ({
     if (!media || !media.path) return;
     
     try {
-      await generateWaveform(media.path);
+      console.log('波形データ読み込み開始:', media.path);
+      // 波形データを取得（getWaveformForMediaを使用）
+      const mediaWithTaskIds = media as MediaFileWithTaskIds;
+      const taskId = await getWaveformForMedia(mediaWithTaskIds);
+      
+      if (taskId) {
+        console.log('波形データタスクID:', taskId);
+      } else {
+        console.error('波形データ生成失敗: タスクIDが取得できませんでした');
+      }
     } catch (error) {
       console.error('波形データ生成エラー:', error);
     }
@@ -217,29 +236,10 @@ const TrimPane: React.FC<TrimPaneProps> = ({
       }}
     >
       <Box 
-        sx={{
-          display: 'flex',
-          alignItems: 'center',
-          justifyContent: 'space-between',
-          p: 1,
-          borderBottom: 1,
-          borderColor: 'divider',
-          bgcolor: 'background.default',
-        }}
-      >
-        <Typography variant="h6" component="h2" sx={{ fontSize: '0.9rem', fontWeight: 'medium' }}>
-          波形編集
-        </Typography>
-        <Typography variant="body2" color="text.secondary" sx={{ fontSize: '0.8rem' }}>
-          {selectedMedia.name}
-        </Typography>
-      </Box>
-      
-      <Box 
         sx={{ 
           display: 'flex', 
           flexDirection: 'column', 
-          height: 'calc(100% - 40px)',
+          height: '100%',
           minHeight: 0,  
           overflow: 'hidden',
         }}
@@ -256,17 +256,37 @@ const TrimPane: React.FC<TrimPaneProps> = ({
           }}
         >
           {waveformData && waveformData.length > 0 ? (
-            <WaveformDisplay
-              waveformData={waveformData}
-              duration={duration}
-              trimStart={trimStart}
-              trimEnd={trimEnd}
-              currentTime={currentTime}
-              seeking={seeking}
-              onSetTrimStart={handleSetTrimStart}
-              onSetTrimEnd={handleSetTrimEnd}
-              onSeek={handleSeek}
-            />
+            <>
+              {/* デバッグ情報表示 */}
+              <Box sx={{ 
+                position: 'absolute', 
+                top: 0, 
+                right: 0, 
+                zIndex: 100, 
+                bgcolor: 'rgba(0,0,0,0.7)', 
+                color: 'white', 
+                p: 1, 
+                fontSize: '10px',
+                maxWidth: '200px',
+                overflowX: 'hidden'
+              }}>
+                <div>データ長: {waveformData.length}</div>
+                <div>再生時間: {duration.toFixed(1)}秒</div>
+                <div>データタイプ: {typeof waveformData}</div>
+                <div>サンプル: {waveformData.slice(0, 5).map(v => v.toFixed(2)).join(', ')}...</div>
+              </Box>
+              <WaveformDisplay
+                waveformData={waveformData}
+                duration={duration}
+                trimStart={trimStart}
+                trimEnd={trimEnd}
+                currentTime={currentTime}
+                seeking={seeking}
+                onSetTrimStart={handleSetTrimStart}
+                onSetTrimEnd={handleSetTrimEnd}
+                onSeek={handleSeek}
+              />
+            </>
           ) : (
             <Box sx={{ 
               display: 'flex', 
