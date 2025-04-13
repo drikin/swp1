@@ -56,6 +56,26 @@ class ExportTask extends BaseTask {
       settings: this.settings,
       tempDir: this.tempDir
     });
+
+    // FFmpegの準備確認
+    this._checkFFmpegAvailability();
+  }
+
+  /**
+   * FFmpegが利用可能かチェック
+   * @private
+   */
+  _checkFFmpegAvailability() {
+    try {
+      const ffmpegPath = getFFmpegPath();
+      if (!fs.existsSync(ffmpegPath)) {
+        console.warn(`警告: FFmpegが見つかりません: ${ffmpegPath}`);
+      } else {
+        console.log(`FFmpegが見つかりました: ${ffmpegPath}`);
+      }
+    } catch (error) {
+      console.error('FFmpegの確認中にエラーが発生しました:', error);
+    }
   }
 
   /**
@@ -184,7 +204,11 @@ class ExportTask extends BaseTask {
             hasFilePath: !!file.filePath,
             filePath: file.filePath || 'なし',
             hasDuration: !!file.duration,
-            duration: file.duration || 'なし'
+            duration: file.duration || 'なし',
+            // トリミング情報があれば表示
+            hasTrimInfo: !!(file.trimStart !== undefined || file.trimEnd !== undefined),
+            trimStart: file.trimStart,
+            trimEnd: file.trimEnd
           };
         } else {
           return { index, type: typeof file, value: file };
@@ -194,6 +218,13 @@ class ExportTask extends BaseTask {
       console.log('出力先:', this.outputPath);
       console.log('設定:', this.settings);
       console.log('============================');
+      
+      // 出力先ディレクトリが存在するか確認
+      const outputDir = path.dirname(this.outputPath);
+      if (!fs.existsSync(outputDir)) {
+        console.log(`出力先ディレクトリが存在しないため作成します: ${outputDir}`);
+        fs.mkdirSync(outputDir, { recursive: true });
+      }
       
       // 進行状況を更新
       this.updateProgress(0, { phase: 'initializing' });
@@ -215,9 +246,24 @@ class ExportTask extends BaseTask {
         outputPath: resultContext.result?.outputPath || ''
       };
       
+      // 出力ファイルの存在確認
+      if (result.outputPath && fs.existsSync(result.outputPath)) {
+        // ファイルサイズと長さを取得（可能であれば）
+        try {
+          const stats = fs.statSync(result.outputPath);
+          result.fileSize = stats.size;
+          result.fileSizeFormatted = this._formatFileSize(stats.size);
+        } catch (err) {
+          console.warn('ファイル情報の取得に失敗しました:', err);
+        }
+      } else if (result.outputPath) {
+        console.warn(`警告: 出力ファイルが見つかりません: ${result.outputPath}`);
+      }
+      
       console.log(`===== 動画書き出しタスク完了 =====`);
       console.log(`タスクID: ${this.id}`);
       console.log(`出力パス: ${result.outputPath}`);
+      console.log(`ファイルサイズ: ${result.fileSizeFormatted || '不明'}`);
       console.log(`============================`);
       
       // 一時ディレクトリの削除
@@ -238,6 +284,22 @@ class ExportTask extends BaseTask {
       
       return this.fail(error);
     }
+  }
+
+  /**
+   * ファイルサイズを人間が読みやすい形式にフォーマット
+   * @param {number} bytes - バイト数
+   * @returns {string} - フォーマットされたサイズ
+   * @private
+   */
+  _formatFileSize(bytes) {
+    if (bytes === 0) return '0 Bytes';
+    
+    const k = 1024;
+    const sizes = ['Bytes', 'KB', 'MB', 'GB', 'TB'];
+    const i = Math.floor(Math.log(bytes) / Math.log(k));
+    
+    return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
   }
 }
 

@@ -147,24 +147,78 @@ class TrimStep extends ExportStep {
       const ffmpegPath = getFFmpegPath();
       const args = ['-y']; // 出力ファイルを上書き
       
-      // 開始位置の指定（秒）
+      // 入力ファイルのプロパティを取得し、動画のフォーマットを保持
+      args.push('-i', inputPath);
+      
+      // メタデータを取得
+      let fileDuration = 0;
+      const probeProcess = spawn(ffmpegPath, [
+        '-i', inputPath,
+        '-hide_banner'
+      ]);
+      
+      let probeOutput = '';
+      probeProcess.stderr.on('data', (data) => {
+        probeOutput += data.toString();
+      });
+      
+      probeProcess.on('close', (code) => {
+        // 動画の総時間を正確に取得
+        const durationMatch = probeOutput.match(/Duration: (\d{2}):(\d{2}):(\d{2}\.\d{2})/);
+        if (durationMatch) {
+          const hours = parseInt(durationMatch[1], 10);
+          const minutes = parseInt(durationMatch[2], 10);
+          const seconds = parseFloat(durationMatch[3]);
+          fileDuration = hours * 3600 + minutes * 60 + seconds;
+          console.log(`ファイルの長さ: ${fileDuration}秒`);
+        }
+        
+        // 実際のトリミングを開始
+        this._executeFFmpegTrim(ffmpegPath, inputPath, outputPath, trimStart, trimEnd, fileDuration, progressCallback)
+          .then(resolve)
+          .catch(reject);
+      });
+    });
+  }
+  
+  /**
+   * 実際のFFmpegトリミング処理を実行
+   * @param {string} ffmpegPath - FFmpegの実行パス
+   * @param {string} inputPath - 入力ファイルパス
+   * @param {string} outputPath - 出力ファイルパス
+   * @param {number} trimStart - 開始時間（秒）
+   * @param {number} trimEnd - 終了時間（秒）
+   * @param {number} fileDuration - ファイルの総再生時間
+   * @param {Function} progressCallback - 進捗コールバック
+   * @returns {Promise<void>}
+   * @private
+   */
+  async _executeFFmpegTrim(ffmpegPath, inputPath, outputPath, trimStart, trimEnd, fileDuration, progressCallback) {
+    return new Promise((resolve, reject) => {
+      const args = ['-y']; // 出力ファイルを上書き
+      
+      // FFmpegの-ssオプションを入力前に配置して、より高速でおおよそのシークを実現
       if (trimStart && trimStart > 0) {
         args.push('-ss', trimStart.toString());
       }
-      
+
       // 入力ファイル
       args.push('-i', inputPath);
       
       // 継続時間の指定（秒）
+      let trimDuration = 0;
       if (trimEnd && trimEnd > 0) {
-        const duration = trimEnd - (trimStart || 0);
-        if (duration > 0) {
-          args.push('-t', duration.toString());
+        trimDuration = trimEnd - (trimStart || 0);
+        if (trimDuration > 0) {
+          args.push('-t', trimDuration.toString());
         }
       }
-      
-      // コーデックをコピー（トランスコードしない）
+
+      // コーデックをコピー（トランスコードせず高速処理）
       args.push('-c', 'copy');
+      
+      // メタデータを保持
+      args.push('-map_metadata', '0');
       
       // 出力ファイル
       args.push(outputPath);
@@ -178,31 +232,23 @@ class TrimStep extends ExportStep {
         console.log(`FFmpeg stdout: ${data.toString()}`);
       });
       
+      // 実際のトリミング時間を計算（進捗計算用）
+      const processDuration = trimDuration > 0 ? trimDuration : (fileDuration - (trimStart || 0));
+      
       // 進捗情報を解析
-      let duration = 0;
       this.ffmpegProcess.stderr.on('data', (data) => {
         const output = data.toString();
-        console.log(`FFmpeg stderr: ${output}`);
         
-        // 動画の総時間を取得
-        const durationMatch = output.match(/Duration: (\\d+):(\\d+):(\\d+\\.\\d+)/);
-        if (durationMatch) {
-          const hours = parseInt(durationMatch[1], 10);
-          const minutes = parseInt(durationMatch[2], 10);
-          const seconds = parseFloat(durationMatch[3]);
-          duration = hours * 3600 + minutes * 60 + seconds;
-        }
-        
-        // 進捗情報を解析して更新
-        const timeMatch = output.match(/time=(\\d+):(\\d+):(\\d+\\.\\d+)/);
-        if (timeMatch && duration > 0) {
+        // 進捗情報を解析して更新（time=00:00:00.00 形式のパターン）
+        const timeMatch = output.match(/time=(\d{2}):(\d{2}):(\d{2}\.\d{2})/);
+        if (timeMatch && processDuration > 0) {
           const hours = parseInt(timeMatch[1], 10);
           const minutes = parseInt(timeMatch[2], 10);
           const seconds = parseFloat(timeMatch[3]);
           const currentTime = hours * 3600 + minutes * 60 + seconds;
           
-          // 進捗率を計算
-          const progress = Math.min(1, currentTime / duration);
+          // 進捗率を計算（0〜1の範囲）
+          const progress = Math.min(1, currentTime / processDuration);
           progressCallback(progress);
         }
       });
@@ -220,7 +266,7 @@ class TrimStep extends ExportStep {
         
         if (code === 0) {
           console.log('FFmpegトリミング処理が正常に完了しました');
-          progressCallback(1);
+          progressCallback(1); // 100%完了
           resolve();
         } else {
           const error = new Error(`FFmpegプロセスが終了コード ${code} で終了しました`);
