@@ -91,14 +91,13 @@ class ExportTask extends BaseTask {
       pipeline.addStep(new TrimStep());
     }
     
-    // ラウドネス調整ステップを追加（設定で有効になっていれば）
-    if (this.settings.normalizeLoudness === true || this.settings.targetLoudness !== undefined) {
-      pipeline.addStep(new NormalizeLoudnessStep({
-        targetLoudness: this.settings.targetLoudness || -23
-      }));
-    }
+    // ラウドネス調整ステップは常に追加
+    // 実際にラウドネス調整するかはステップのcanExecuteで判断
+    pipeline.addStep(new NormalizeLoudnessStep({
+      targetLoudness: this.settings.targetLoudness || -14 // YouTube推奨値
+    }));
     
-    // 結合ステップは常に追加（必須）
+    // 結合ステップは常に追加（必須・最後に実行）
     pipeline.addStep(new CombineStep({
       codec: this.settings.codec,
       resolution: this.settings.resolution,
@@ -266,8 +265,9 @@ class ExportTask extends BaseTask {
       console.log(`ファイルサイズ: ${result.fileSizeFormatted || '不明'}`);
       console.log(`============================`);
       
-      // 一時ディレクトリの削除
-      this._cleanupTempDir();
+      // デバッグ用に一時ディレクトリを残す
+      console.log(`デバッグ用に一時ディレクトリを保持します: ${this.tempDir}`);
+      // this._cleanupTempDir(); // 一時的にコメントアウト
       
       this.complete(result);
       return result;
@@ -279,8 +279,9 @@ class ExportTask extends BaseTask {
       console.error(`スタックトレース: ${error.stack || 'なし'}`);
       console.error(`============================`);
       
-      // 一時ディレクトリの削除
-      this._cleanupTempDir();
+      // デバッグ用に一時ディレクトリを残す
+      console.error(`デバッグ用に一時ディレクトリを保持します: ${this.tempDir}`);
+      // this._cleanupTempDir(); // 一時的にコメントアウト
       
       return this.fail(error);
     }

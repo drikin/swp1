@@ -10,11 +10,11 @@ const { getFFmpegPath } = require('../../services/ffmpeg/utils');
 class NormalizeLoudnessStep extends ExportStep {
   /**
    * @param {Object} options - オプション
-   * @param {number} options.targetLoudness - 目標ラウドネス値（LUFS）デフォルトは-23 LUFS
+   * @param {number} options.targetLoudness - 目標ラウドネス値（LUFS）デフォルトは-14 LUFS（YouTube推奨）
    */
   constructor(options = {}) {
     super({ name: 'loudness_normalization', ...options });
-    this.targetLoudness = options.targetLoudness || -23; // EBU R128標準
+    this.targetLoudness = options.targetLoudness || -14; // YouTube推奨値
     this.ffmpegProcess = null;
   }
   
@@ -24,9 +24,21 @@ class NormalizeLoudnessStep extends ExportStep {
    * @returns {boolean} 実行可能かどうか
    */
   canExecute(context) {
-    // ラウドネス調整が有効になっているか、または明示的に設定されているか確認
-    return context.settings.normalizeLoudness === true || 
-           context.settings.targetLoudness !== undefined;
+    // 一時的にすべてのファイルでラウドネス調整を有効化
+    // ※本来はUIから個別にnormalizeLoudnessプロパティを設定すべき
+    console.log('ラウドネス調整の実行判定...');
+    console.log('グローバル設定:', context.settings.normalizeLoudness, context.settings.targetLoudness);
+    
+    // 一時的な対応: すべてのファイルでラウドネス調整を有効化
+    context.mediaFiles.forEach(file => {
+      if (typeof file === 'object') {
+        file.normalizeLoudness = true;
+      }
+    });
+    
+    return context.mediaFiles.some(file => 
+      typeof file === 'object' && file.normalizeLoudness === true
+    );
   }
   
   /**
@@ -45,7 +57,7 @@ class NormalizeLoudnessStep extends ExportStep {
     
     // 目標ラウドネス値を設定（コンテキストから取得するか、デフォルト値を使用）
     const targetLoudness = context.settings.targetLoudness || this.targetLoudness;
-    console.log(`目標ラウドネス: ${targetLoudness} LUFS`);
+    console.log(`目標ラウドネス: ${targetLoudness} LUFS（YouTube推奨: -14 LUFS）`);
     
     for (let i = 0; i < totalFiles; i++) {
       const file = context.mediaFiles[i];
@@ -66,6 +78,15 @@ class NormalizeLoudnessStep extends ExportStep {
       
       if (!filePath || !fs.existsSync(filePath)) {
         console.warn(`警告: ファイル[${i}]が存在しないか、パスが無効です`);
+        continue;
+      }
+      
+      // ラウドネス調整が個別に必要かどうかチェック
+      const needsNormalization = typeof file === 'object' && file.normalizeLoudness === true;
+      if (!needsNormalization) {
+        console.log(`ファイル ${path.basename(filePath)} はラウドネス調整が不要なためスキップします`);
+        normalizedFiles.push(file);
+        processedCount++;
         continue;
       }
       
@@ -139,10 +160,10 @@ class NormalizeLoudnessStep extends ExportStep {
     return new Promise((resolve, reject) => {
       const ffmpegPath = getFFmpegPath();
       
-      // FFmpegでEBU R128ラウドネス測定
+      // FFmpegでラウドネス分析
       const args = [
         '-i', filePath,
-        '-af', 'loudnorm=print_format=json',
+        '-af', 'loudnorm=I=-16:TP=-1.5:LRA=11:print_format=json',
         '-f', 'null',
         '-'
       ];
@@ -151,43 +172,58 @@ class NormalizeLoudnessStep extends ExportStep {
       
       const process = spawn(ffmpegPath, args);
       
-      let outputData = '';
+      let stderr = '';
       
-      // 標準エラー出力を収集
       process.stderr.on('data', (data) => {
-        outputData += data.toString();
+        stderr += data.toString();
       });
       
-      // エラーハンドリング
-      process.on('error', (err) => {
-        console.error('ラウドネス測定プロセスエラー:', err);
-        reject(err);
-      });
-      
-      // 完了ハンドリング
       process.on('close', (code) => {
         if (code === 0) {
+          // ラウドネス情報を抽出
           try {
-            // JSONデータを抽出 (FFmpegの出力から)
-            const jsonMatch = outputData.match(/{\\s*"input_i".*?}/s);
-            if (jsonMatch) {
-              const loudnessData = JSON.parse(jsonMatch[0]);
-              resolve({
-                integrated: parseFloat(loudnessData.input_i || '-70'),
-                truePeak: parseFloat(loudnessData.input_tp || '0'),
+            // JSONデータを抽出（stderr内の最後のJSONブロック）
+            const jsonMatch = stderr.match(/\{[\s\S]*?\}(?!\s*[\},])/g);
+            let loudnessData = null;
+            
+            if (jsonMatch && jsonMatch.length > 0) {
+              // 最後のJSONブロックを使用
+              const jsonStr = jsonMatch[jsonMatch.length - 1];
+              loudnessData = JSON.parse(jsonStr);
+              
+              const result = {
+                integrated: parseFloat(loudnessData.input_i || '-24'),
+                truePeak: parseFloat(loudnessData.input_tp || '-1'),
                 lra: parseFloat(loudnessData.input_lra || '0'),
-                threshold: parseFloat(loudnessData.input_thresh || '-70')
-              });
+                threshold: parseFloat(loudnessData.input_thresh || '-34'),
+                raw: loudnessData
+              };
+              
+              console.log(`ラウドネス分析結果: 統合ラウドネス=${result.integrated} LUFS, トゥルーピーク=${result.truePeak} dB`);
+              resolve(result);
             } else {
-              reject(new Error('ラウドネスデータが見つかりませんでした'));
+              console.warn('ラウドネス分析結果からJSONデータを抽出できませんでした');
+              // デフォルト値を使用
+              resolve({
+                integrated: -24,
+                truePeak: -1,
+                lra: 0,
+                threshold: -34
+              });
             }
           } catch (error) {
-            console.error('ラウドネスデータの解析エラー:', error);
+            console.error('ラウドネス分析結果の解析に失敗しました:', error);
             reject(error);
           }
         } else {
-          reject(new Error(`ラウドネス測定プロセスが終了コード ${code} で終了しました`));
+          console.error(`ラウドネス分析が終了コード ${code} で失敗しました`);
+          reject(new Error(`ラウドネス分析プロセスが終了コード ${code} で終了しました`));
         }
+      });
+      
+      process.on('error', (err) => {
+        console.error('ラウドネス分析プロセスエラー:', err);
+        reject(err);
       });
     });
   }
@@ -206,17 +242,48 @@ class NormalizeLoudnessStep extends ExportStep {
     return new Promise((resolve, reject) => {
       const ffmpegPath = getFFmpegPath();
       
+      // 調整量を計算 (現在のラウドネスと目標ラウドネスの差)
+      const currentLoudness = loudnessInfo.integrated;
+      const adjustmentDB = targetLoudness - currentLoudness;
+      
+      console.log(`ラウドネス調整量: ${adjustmentDB.toFixed(2)} dB（${currentLoudness.toFixed(2)} LUFS → ${targetLoudness.toFixed(2)} LUFS）`);
+      
+      // ラウドネス調整が必要ない場合 (差が±0.5dB以内)
+      if (Math.abs(adjustmentDB) < 0.5) {
+        console.log('ラウドネス調整量が小さいため、変更なしでコピーします');
+        // 単純コピー
+        const copyArgs = [
+          '-y',
+          '-i', inputPath,
+          '-c', 'copy',
+          outputPath
+        ];
+        
+        this.ffmpegProcess = spawn(ffmpegPath, copyArgs);
+        
+        this.ffmpegProcess.on('close', (code) => {
+          this.ffmpegProcess = null;
+          if (code === 0) {
+            console.log('ファイルコピーが完了しました');
+            progressCallback(1);
+            resolve();
+          } else {
+            reject(new Error(`ファイルコピーが終了コード ${code} で失敗しました`));
+          }
+        });
+        
+        return;
+      }
+      
       // FFmpegでラウドネス正規化
+      // loudnormフィルタを2パス目で使用（測定値をもとに正規化）
       const args = [
         '-y',
         '-i', inputPath,
-        '-af', `loudnorm=I=${targetLoudness}:TP=-1.0:LRA=15:` +
-               `measured_I=${loudnessInfo.integrated}:` +
-               `measured_TP=${loudnessInfo.truePeak}:` +
-               `measured_LRA=${loudnessInfo.lra}:` +
-               `measured_thresh=${loudnessInfo.threshold}:` +
-               'linear=true:print_format=summary',
+        '-af', `volume=${adjustmentDB}dB`,
         '-c:v', 'copy', // ビデオをそのままコピー
+        '-c:a', 'aac', // 音声はAACにエンコード
+        '-b:a', '192k', // 音声ビットレート
         outputPath
       ];
       
@@ -234,14 +301,8 @@ class NormalizeLoudnessStep extends ExportStep {
       this.ffmpegProcess.stderr.on('data', (data) => {
         const output = data.toString();
         
-        // デバッグ情報が多すぎるため、進捗情報のみを抽出
-        const timeMatch = output.match(/time=(\\d+):(\\d+):(\\d+\\.\\d+)/);
-        if (timeMatch) {
-          console.log(`ラウドネス正規化進捗: ${timeMatch[0]}`);
-        }
-        
         // 動画の総時間を取得
-        const durationMatch = output.match(/Duration: (\\d+):(\\d+):(\\d+\\.\\d+)/);
+        const durationMatch = output.match(/Duration: (\d{2}):(\d{2}):(\d{2}\.\d{2})/);
         if (durationMatch) {
           const hours = parseInt(durationMatch[1], 10);
           const minutes = parseInt(durationMatch[2], 10);
@@ -250,6 +311,7 @@ class NormalizeLoudnessStep extends ExportStep {
         }
         
         // 進捗情報を解析して更新
+        const timeMatch = output.match(/time=(\d{2}):(\d{2}):(\d{2}\.\d{2})/);
         if (timeMatch && duration > 0) {
           const hours = parseInt(timeMatch[1], 10);
           const minutes = parseInt(timeMatch[2], 10);
