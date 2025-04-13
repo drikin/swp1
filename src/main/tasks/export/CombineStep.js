@@ -45,7 +45,16 @@ class CombineStep extends ExportStep {
       const inputListPath = await this._createInputFileList(context);
       
       // 出力ファイルパスを取得または生成
-      const outputPath = context.outputPath || this._getOutputFilePath(context);
+      let outputPath = context.outputPath || this._getOutputFilePath(context);
+      
+      // 出力パスがディレクトリの場合はファイル名を追加
+      if (fs.existsSync(outputPath) && fs.statSync(outputPath).isDirectory()) {
+        const format = context.settings.format || this.format || 'mp4';
+        const date = new Date();
+        const timestamp = `${date.getFullYear()}${(date.getMonth() + 1).toString().padStart(2, '0')}${date.getDate().toString().padStart(2, '0')}_${date.getHours().toString().padStart(2, '0')}${date.getMinutes().toString().padStart(2, '0')}${date.getSeconds().toString().padStart(2, '0')}`;
+        outputPath = path.join(outputPath, `export_${timestamp}.${format}`);
+      }
+      
       console.log(`最終出力先パス: ${outputPath}`);
       
       // 動画を結合
@@ -98,20 +107,54 @@ class CombineStep extends ExportStep {
     for (let i = 0; i < mediaFiles.length; i++) {
       const file = mediaFiles[i];
       let filePath = '';
+      let fileDuration = 0;
       
       console.log(`メディアファイル[${i}]の型:`, typeof file);
       
       if (typeof file === 'string') {
         filePath = file;
       } else if (typeof file === 'object' && file !== null) {
-        // オブジェクトからパスプロパティを取得
-        if (file.path) {
-          filePath = file.path;
-        } else if (file.filePath) {
-          filePath = file.filePath;
-        } else {
-          console.warn(`警告: ファイル[${i}]にパスプロパティがありません:`, file);
-          continue; // このファイルはスキップ
+        // 事前処理済みファイルがあるかどうかを確認
+        let processedFilePath = null;
+
+        // ファイルの時間情報を取得
+        if (file.duration) {
+          fileDuration = parseFloat(file.duration);
+        }
+
+        // 1. Normalized(ラウドネスノーマライズ)済みファイルを確認
+        if (context.normalizedFiles && context.normalizedFiles[file.id]) {
+          processedFilePath = context.normalizedFiles[file.id];
+          console.log(`ラウドネスノーマライズ済みファイルを使用: ${processedFilePath}`);
+        } 
+        // 2. Trimmed(トリム)済みファイルを確認
+        else if (context.trimmedFiles && context.trimmedFiles[file.id]) {
+          processedFilePath = context.trimmedFiles[file.id];
+          console.log(`トリム済みファイルを使用: ${processedFilePath}`);
+          
+          // トリムされたファイルの場合、時間情報を調整
+          if (file.trimStart !== undefined && file.trimEnd !== undefined) {
+            fileDuration = file.trimEnd - file.trimStart;
+            console.log(`トリム調整後の時間: ${fileDuration}秒`);
+          }
+        }
+
+        // 処理済みファイルがある場合はそれを使用
+        if (processedFilePath && fs.existsSync(processedFilePath)) {
+          filePath = processedFilePath;
+        } 
+        // なければ元のファイルパスを使用
+        else {
+          // オブジェクトからパスプロパティを取得
+          if (file.path) {
+            filePath = file.path;
+          } else if (file.filePath) {
+            filePath = file.filePath;
+          } else {
+            console.warn(`警告: ファイル[${i}]にパスプロパティがありません:`, file);
+            continue; // このファイルはスキップ
+          }
+          console.log(`オリジナルファイルを使用: ${filePath}`);
         }
       } else {
         console.warn(`警告: ファイル[${i}]は無効な形式です:`, file);
@@ -124,8 +167,8 @@ class CombineStep extends ExportStep {
         continue; // このファイルはスキップ
       }
       
-      console.log(`有効なメディアファイル: ${filePath}`);
-      validMediaFiles.push(filePath);
+      console.log(`有効なメディアファイル: ${filePath}, 長さ: ${fileDuration}秒`);
+      validMediaFiles.push({ path: filePath, duration: fileDuration });
     }
     
     // 有効なファイルが1つもない場合はエラー
@@ -137,9 +180,9 @@ class CombineStep extends ExportStep {
     
     // ファイルリストを作成
     const fileContent = validMediaFiles
-      .map(filePath => {
+      .map(fileInfo => {
         // ファイルパスに含まれる特殊文字をエスケープ
-        return `file '${filePath.replace(/'/g, "'\\''")}'`;
+        return `file '${fileInfo.path.replace(/'/g, "'\\''")}'`;
       })
       .join('\n');
     
@@ -252,15 +295,32 @@ class CombineStep extends ExportStep {
     if (context.outputPath && context.outputPath.trim() !== '') {
       let outputPath = context.outputPath;
       
-      // 拡張子を正しいフォーマットに変更
-      const fileExt = path.extname(outputPath).toLowerCase();
-      const formatExt = `.${format}`.toLowerCase();
-      
-      if (fileExt !== formatExt) {
-        // 拡張子が異なる場合は、ファイル名の拡張子を置き換え
+      try {
+        // 出力先がディレクトリかどうかを確認
+        const stats = fs.existsSync(outputPath) ? fs.statSync(outputPath) : null;
+        
+        if (stats && stats.isDirectory()) {
+          // ディレクトリの場合はファイル名を生成して追加
+          console.log(`出力先はディレクトリです: ${outputPath}`);
+          outputPath = path.join(outputPath, `export_${timestamp}.${format}`);
+          console.log(`生成された出力ファイルパス: ${outputPath}`);
+        } else {
+          // ファイルパスの場合、拡張子を正しいフォーマットに変更
+          const fileExt = path.extname(outputPath).toLowerCase();
+          const formatExt = `.${format}`.toLowerCase();
+          
+          if (fileExt !== formatExt) {
+            // 拡張子が異なる場合は、ファイル名の拡張子を置き換え
+            const dirName = path.dirname(outputPath);
+            const baseName = path.basename(outputPath, fileExt);
+            outputPath = path.join(dirName, `${baseName}${formatExt}`);
+          }
+        }
+      } catch (error) {
+        console.error('出力パスの処理中にエラーが発生しました:', error);
+        // エラーが発生した場合は、安全のためファイル名を追加
         const dirName = path.dirname(outputPath);
-        const baseName = path.basename(outputPath, fileExt);
-        outputPath = path.join(dirName, `${baseName}${formatExt}`);
+        outputPath = path.join(dirName, `export_${timestamp}.${format}`);
       }
       
       return outputPath;
@@ -300,97 +360,175 @@ class CombineStep extends ExportStep {
       const settings = context.settings || {};
       const encoderParams = this._getEncoderParams(settings);
       
-      // FFmpegコマンド引数を構築
-      const args = [
-        '-y',                 // 出力ファイルを上書き
-        '-f', 'concat',       // 結合モード
-        '-safe', '0',         // 安全でないファイルパスを許可
-        '-i', inputListPath,  // 入力ファイルリスト
-        '-map', '0:v',        // ビデオストリームをマップ
-        '-map', '0:a?',       // オーディオストリームをマップ（存在すれば）
-        ...encoderParams,     // エンコーダーパラメータ
-        '-c:a', 'aac',        // 音声コーデック
-        '-b:a', '192k',       // 音声ビットレート
-        outputPath            // 出力ファイルパス
-      ];
+      // 出力先ディレクトリの存在確認
+      const outputDir = path.dirname(outputPath);
+      if (!fs.existsSync(outputDir)) {
+        try {
+          fs.mkdirSync(outputDir, { recursive: true });
+          console.log(`出力先ディレクトリを作成しました: ${outputDir}`);
+        } catch (err) {
+          console.error(`出力先ディレクトリの作成に失敗しました: ${err.message}`);
+          return reject(new Error(`出力先ディレクトリの作成に失敗しました: ${err.message}`));
+        }
+      }
       
-      // コマンドラインを出力
+      // 安全な結合方法を使用: 一時ファイルを作成し、それを結合
+      // 入力ファイルリストから実際のファイルパスを取得
+      let inputFiles = [];
+      try {
+        const fileListContent = fs.readFileSync(inputListPath, 'utf8');
+        const lines = fileListContent.split('\n');
+        for (const line of lines) {
+          const match = line.match(/file ['"](.+)['"]/);
+          if (match && match[1]) {
+            inputFiles.push(match[1]);
+          }
+        }
+        console.log(`入力ファイル数: ${inputFiles.length}`);
+      } catch (err) {
+        console.error('入力ファイルリスト読み込みエラー:', err);
+        return reject(err);
+      }
+      
+      if (inputFiles.length === 0) {
+        return reject(new Error('有効な入力ファイルがありません'));
+      }
+      
+      // 1ファイルのみの場合は単純コピー
+      if (inputFiles.length === 1) {
+        console.log('入力ファイルが1つのみのため、単純コピーを実行します');
+        const args = [
+          '-y',
+          '-i', inputFiles[0],
+          '-c', 'copy',
+          outputPath
+        ];
+        
+        const ffmpegCmd = `${ffmpegPath} ${args.join(' ')}`;
+        console.log('=== FFmpeg実行コマンド（単純コピー） ===');
+        console.log(ffmpegCmd);
+        console.log('========================');
+        
+        this.ffmpegProcess = spawn(ffmpegPath, args);
+        
+        this.ffmpegProcess.stdout.on('data', (data) => {
+          console.log(`FFmpeg stdout: ${data.toString()}`);
+        });
+        
+        this.ffmpegProcess.stderr.on('data', (data) => {
+          console.log(`FFmpeg stderr: ${data.toString()}`);
+        });
+        
+        this.ffmpegProcess.on('error', (err) => {
+          console.error('FFmpegプロセスエラー:', err);
+          this.ffmpegProcess = null;
+          reject(err);
+        });
+        
+        this.ffmpegProcess.on('close', (code) => {
+          this.ffmpegProcess = null;
+          if (code === 0) {
+            console.log('単純コピーが正常に完了しました');
+            try {
+              if (fs.existsSync(outputPath)) {
+                const stats = fs.statSync(outputPath);
+                if (stats.size === 0) {
+                  reject(new Error('出力ファイルのサイズが0です'));
+                  return;
+                }
+                
+                let fileSizeFormatted = this._formatFileSize(stats.size);
+                context.fileSizeFormatted = fileSizeFormatted;
+                progressCallback(100, { phase: 'combining_complete' });
+                resolve();
+              } else {
+                reject(new Error('出力ファイルが作成されませんでした'));
+              }
+            } catch (error) {
+              console.error('出力ファイル確認エラー:', error);
+              reject(error);
+            }
+          } else {
+            const error = new Error(`単純コピーが終了コード ${code} で失敗しました`);
+            console.error(error.message);
+            reject(error);
+          }
+        });
+        
+        return;
+      }
+      
+      // 安全な結合方法：フィルタ複合（filtercomplex）を使用
+      const filterComplex = [];
+      for (let i = 0; i < inputFiles.length; i++) {
+        filterComplex.push(`[${i}:v:0][${i}:a:0]`);
+      }
+      
+      const args = ['-y'];
+      
+      // 入力ファイルを追加
+      for (const file of inputFiles) {
+        args.push('-i', file);
+      }
+      
+      // フィルタ複合を追加
+      args.push(
+        '-filter_complex', `${filterComplex.join('')}concat=n=${inputFiles.length}:v=1:a=1[outv][outa]`,
+        '-map', '[outv]',
+        '-map', '[outa]',
+        ...encoderParams,
+        '-max_muxing_queue_size', '1024',
+        '-c:a', 'aac',
+        '-b:a', '192k',
+        outputPath
+      );
+      
       const ffmpegCmd = `${ffmpegPath} ${args.join(' ')}`;
-      console.log('=== FFmpeg実行コマンド ===');
+      console.log('=== FFmpeg実行コマンド（フィルタ複合） ===');
       console.log(ffmpegCmd);
       console.log('========================');
       
-      // 入力ファイルの内容を表示
-      try {
-        const inputListContent = fs.readFileSync(inputListPath, 'utf8');
-        console.log('=== 入力ファイルリスト内容 ===');
-        console.log(inputListContent);
-        console.log('============================');
-      } catch (err) {
-        console.error('入力ファイルリスト読み込みエラー:', err);
-      }
-      
-      // 設定情報のログ出力
-      console.log('=== FFmpeg エンコード設定 ===');
-      console.log('解像度:', settings.resolution || this.resolution);
-      console.log('フレームレート:', settings.fps || this.fps);
-      console.log('コーデック:', settings.codec || this.codec);
-      console.log('フォーマット:', settings.format || this.format);
-      console.log('エンコーダパラメータ:', encoderParams);
-      console.log('============================');
-      
       progressCallback(10, { phase: 'combining' });
       
-      // FFmpegプロセスを開始
       this.ffmpegProcess = spawn(ffmpegPath, args);
       
-      // 標準出力をログに記録
       this.ffmpegProcess.stdout.on('data', (data) => {
         const output = data.toString();
         console.log(`FFmpeg stdout: ${output}`);
       });
       
-      // 進捗情報を取得
-      let lastProgress = 0;
+      let lastProgress = 10;
       this.ffmpegProcess.stderr.on('data', (data) => {
         const output = data.toString();
         
-        // デバッグログが大量に出るため、進捗情報のみを抽出
         const timeMatch = output.match(/time=(\d+):(\d+):(\d+\.\d+)/);
-        if (timeMatch) {
-          console.log(`FFmpeg進捗: ${timeMatch[0]}`);
-        }
-        
-        // 進捗情報を解析して更新
         if (timeMatch) {
           const hours = parseInt(timeMatch[1], 10);
           const minutes = parseInt(timeMatch[2], 10);
           const seconds = parseFloat(timeMatch[3]);
           const totalSeconds = hours * 3600 + minutes * 60 + seconds;
           
-          // 総時間の推定（メディアファイルの合計時間があれば使用）
+          console.log(`FFmpeg進捗: ${timeMatch[0]}`);
+          
           let totalDuration = 0;
           context.mediaFiles.forEach(file => {
             if (file.duration) {
-              totalDuration += parseFloat(file.duration);
+              if (file.trimStart !== undefined && file.trimEnd !== undefined) {
+                totalDuration += (file.trimEnd - file.trimStart);
+              } else {
+                totalDuration += parseFloat(file.duration);
+              }
             }
           });
           
-          // 進捗情報のログ出力
           console.log(`FFmpeg進捗: ${hours}:${minutes}:${seconds} (合計秒数: ${totalSeconds.toFixed(2)}秒)`);
           
           if (totalDuration > 0) {
             const percent = Math.min(95, 10 + (totalSeconds / totalDuration) * 85);
             console.log(`進捗率: ${percent.toFixed(2)}% (処理秒数: ${totalSeconds.toFixed(2)}秒 / 合計: ${totalDuration.toFixed(2)}秒)`);
-          }
-          
-          // 合計時間が不明または0の場合、進捗表示を微増
-          if (!totalDuration || totalDuration <= 0) {
-            lastProgress = Math.min(95, lastProgress + 0.5);
+            lastProgress = percent;
           } else {
-            // 進捗率を計算 (10%〜95%の間で調整)
-            const progressPercent = Math.min(95, 10 + (totalSeconds / totalDuration) * 85);
-            lastProgress = progressPercent;
+            lastProgress = Math.min(95, lastProgress + 0.5);
           }
           
           progressCallback(lastProgress, { 
@@ -399,30 +537,36 @@ class CombineStep extends ExportStep {
             totalDuration: totalDuration > 0 ? `${Math.floor(totalDuration / 3600)}:${Math.floor((totalDuration % 3600) / 60)}:${Math.floor(totalDuration % 60)}` : '不明'
           });
         }
+        
+        if (output.includes('Error') || output.includes('Invalid') || output.includes('error') || output.includes('failed')) {
+          console.error(`FFmpegエラー: ${output}`);
+        }
       });
       
-      // エラーハンドリング
       this.ffmpegProcess.on('error', (err) => {
         console.error('FFmpegプロセスエラー:', err);
         this.ffmpegProcess = null;
         reject(err);
       });
       
-      // 完了ハンドリング
       this.ffmpegProcess.on('close', (code) => {
         this.ffmpegProcess = null;
         
         if (code === 0) {
           console.log('FFmpeg処理が正常に完了しました');
           try {
-            // 出力ファイルが存在することを確認
             if (fs.existsSync(outputPath)) {
               const stats = fs.statSync(outputPath);
               console.log(`出力ファイル情報: サイズ=${stats.size}バイト, 作成日時=${stats.birthtime}`);
+              
               if (stats.size === 0) {
                 reject(new Error('出力ファイルのサイズが0です'));
                 return;
               }
+              
+              let fileSizeFormatted = this._formatFileSize(stats.size);
+              context.fileSizeFormatted = fileSizeFormatted;
+              
             } else {
               reject(new Error('出力ファイルが作成されませんでした'));
               return;
@@ -441,6 +585,24 @@ class CombineStep extends ExportStep {
         }
       });
     });
+  }
+  
+  /**
+   * ファイルサイズをフォーマット
+   * @param {number} size - ファイルサイズ（バイト）
+   * @returns {string} - フォーマットされたサイズ文字列
+   * @private
+   */
+  _formatFileSize(size) {
+    if (size < 1024) {
+      return `${size} B`;
+    } else if (size < 1024 * 1024) {
+      return `${(size / 1024).toFixed(2)} KB`;
+    } else if (size < 1024 * 1024 * 1024) {
+      return `${(size / (1024 * 1024)).toFixed(2)} MB`;
+    } else {
+      return `${(size / (1024 * 1024 * 1024)).toFixed(2)} GB`;
+    }
   }
   
   /**

@@ -265,9 +265,8 @@ class ExportTask extends BaseTask {
       console.log(`ファイルサイズ: ${result.fileSizeFormatted || '不明'}`);
       console.log(`============================`);
       
-      // デバッグ用に一時ディレクトリを残す
-      console.log(`デバッグ用に一時ディレクトリを保持します: ${this.tempDir}`);
-      // this._cleanupTempDir(); // 一時的にコメントアウト
+      // 一時ディレクトリの削除
+      this._cleanupTempDir();
       
       this.complete(result);
       return result;
@@ -279,9 +278,8 @@ class ExportTask extends BaseTask {
       console.error(`スタックトレース: ${error.stack || 'なし'}`);
       console.error(`============================`);
       
-      // デバッグ用に一時ディレクトリを残す
-      console.error(`デバッグ用に一時ディレクトリを保持します: ${this.tempDir}`);
-      // this._cleanupTempDir(); // 一時的にコメントアウト
+      // 一時ディレクトリの削除
+      this._cleanupTempDir();
       
       return this.fail(error);
     }
