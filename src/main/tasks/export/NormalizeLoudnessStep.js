@@ -24,21 +24,17 @@ class NormalizeLoudnessStep extends ExportStep {
    * @returns {boolean} 実行可能かどうか
    */
   canExecute(context) {
-    // 一時的にすべてのファイルでラウドネス調整を有効化
-    // ※本来はUIから個別にnormalizeLoudnessプロパティを設定すべき
     console.log('ラウドネス調整の実行判定...');
     console.log('グローバル設定:', context.settings.normalizeLoudness, context.settings.targetLoudness);
     
-    // 一時的な対応: すべてのファイルでラウドネス調整を有効化
-    context.mediaFiles.forEach(file => {
-      if (typeof file === 'object') {
-        file.normalizeLoudness = true;
-      }
-    });
-    
-    return context.mediaFiles.some(file => 
-      typeof file === 'object' && file.normalizeLoudness === true
+    // メディアファイルのnormalizeLoudnessフラグを確認
+    // 注意: UIでは loudnessNormalization という名前で管理されているため、両方確認する
+    const hasFilesToNormalize = context.mediaFiles.some(file => 
+      typeof file === 'object' && (file.normalizeLoudness === true || file.loudnessNormalization !== false)
     );
+    
+    console.log('ラウドネス調整が必要なファイル:', hasFilesToNormalize);
+    return hasFilesToNormalize;
   }
   
   /**
@@ -82,7 +78,7 @@ class NormalizeLoudnessStep extends ExportStep {
       }
       
       // ラウドネス調整が個別に必要かどうかチェック
-      const needsNormalization = typeof file === 'object' && file.normalizeLoudness === true;
+      const needsNormalization = typeof file === 'object' && (file.normalizeLoudness === true || file.loudnessNormalization !== false);
       if (!needsNormalization) {
         console.log(`ファイル ${path.basename(filePath)} はラウドネス調整が不要なためスキップします`);
         normalizedFiles.push(file);
@@ -97,14 +93,24 @@ class NormalizeLoudnessStep extends ExportStep {
         console.log(`ファイル ${path.basename(filePath)} のラウドネスを調整中...`);
         
         // まずファイルのラウドネスを測定
-        const loudnessInfo = await this._analyzeLoudness(filePath);
+        const loudnessInfo = await this._measureLoudness(filePath, (progress) => {
+          // 測定は全体の20%とする
+          const fileWeight = 1 / totalFiles;
+          const overallProgress = ((processedCount * fileWeight) + (progress * fileWeight * 0.2)) * 100;
+          progressCallback(overallProgress, {
+            currentFile: i + 1,
+            totalFiles,
+            fileProgress: progress,
+            fileName: path.basename(filePath)
+          });
+        });
         console.log(`ラウドネス測定結果:`, loudnessInfo);
         
         // 次にラウドネスを正規化
-        await this._normalizeLoudness(filePath, outputPath, loudnessInfo, targetLoudness, progress => {
+        await this._normalizeLoudness(filePath, outputPath, loudnessInfo, targetLoudness, (progress) => {
           // 単一ファイルの進捗を全体の進捗に変換
           const fileWeight = 1 / totalFiles;
-          const overallProgress = ((processedCount * fileWeight) + (progress * fileWeight)) * 100;
+          const overallProgress = ((processedCount * fileWeight) + (progress * fileWeight * 0.8) + (fileWeight * 0.2)) * 100;
           progressCallback(overallProgress, {
             currentFile: i + 1,
             totalFiles,
@@ -153,10 +159,11 @@ class NormalizeLoudnessStep extends ExportStep {
   /**
    * ファイルのラウドネスを測定
    * @param {string} filePath - 入力ファイルパス
+   * @param {Function} progressCallback - 進捗コールバック
    * @returns {Promise<Object>} - ラウドネス情報
    * @private
    */
-  async _analyzeLoudness(filePath) {
+  async _measureLoudness(filePath, progressCallback) {
     return new Promise((resolve, reject) => {
       const ffmpegPath = getFFmpegPath();
       
@@ -346,6 +353,65 @@ class NormalizeLoudnessStep extends ExportStep {
         }
       });
     });
+  }
+  
+  /**
+   * 個別ファイルのラウドネス調整を実行
+   * @param {object} file メディアファイル情報
+   * @param {string} inputPath 入力ファイルパス
+   * @param {string} outputPath 出力ファイルパス
+   * @param {function} progressCallback 進捗コールバック
+   * @returns {Promise<boolean>} 処理が完了したらtrue、スキップされたらfalse
+   */
+  async _normalizeFileWithCustomTarget(file, inputPath, outputPath, progressCallback) {
+    // ファイルのラウドネス調整が有効かどうか確認
+    // 注意: UIでは loudnessNormalization という名前で管理されているため、両方確認する
+    if (file.normalizeLoudness !== true && file.loudnessNormalization === false) {
+      console.log(`ファイル "${file.name}" のラウドネス調整はスキップされます（無効設定）`);
+      return false;
+    }
+    
+    try {
+      console.log(`ファイル "${file.name}" のラウドネス測定を開始...`);
+      // ターゲットラウドネス値を決定（デフォルトは-14 LUFS）
+      const targetLoudness = this.targetLoudness;
+      console.log(`目標ラウドネス: ${targetLoudness} LUFS`);
+      
+      // 既に測定済みのラウドネス値があるか確認
+      if (file.lufs !== undefined) {
+        console.log(`既存のラウドネス測定値: ${file.lufs} LUFS`);
+        
+        // 測定値を使用してラウドネス調整
+        const loudnessInfo = {
+          integrated: file.lufs,
+          truePeak: file.truePeak || -1,
+          lra: file.lra || 1,
+          threshold: file.threshold || -24
+        };
+        
+        await this._normalizeLoudness(inputPath, outputPath, loudnessInfo, targetLoudness, progressCallback);
+        return true;
+      } else {
+        // ラウドネス値がない場合は測定してから調整
+        console.log(`ファイル "${file.name}" にラウドネス値がありません。測定を行います。`);
+        const loudnessInfo = await this._measureLoudness(inputPath, (progress) => {
+          // 測定は全体の20%とする
+          progressCallback(progress * 0.2);
+        });
+        
+        console.log(`測定結果: ${loudnessInfo.integrated} LUFS`);
+        
+        // 測定値を使用してラウドネス調整
+        await this._normalizeLoudness(inputPath, outputPath, loudnessInfo, targetLoudness, (progress) => {
+          // 調整は全体の80%とする
+          progressCallback(0.2 + progress * 0.8);
+        });
+        return true;
+      }
+    } catch (error) {
+      console.error(`ファイル "${file.name}" のラウドネス調整中にエラーが発生しました:`, error);
+      throw error;
+    }
   }
   
   /**

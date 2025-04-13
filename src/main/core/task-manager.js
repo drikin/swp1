@@ -25,7 +25,7 @@ class TaskManager {
     this.taskChildren = new Map(); // タスクIDから子タスクIDリストへのマップ
     
     // リトライ設定
-    this.maxRetries = 3; // 最大リトライ回数
+    this.maxRetries = 0; // 最大リトライ回数
     this.retryDelays = [1000, 5000, 15000]; // リトライ間隔（ミリ秒）
     this.taskRetryCount = new Map(); // タスクIDからリトライ回数へのマップ
 
