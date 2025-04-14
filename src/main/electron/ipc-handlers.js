@@ -122,14 +122,73 @@ function registerExportHandlers() {
       }));
       
       // 進捗更新用の関数を定義
-      const updateProgress = (current, total, stage) => {
-        const percentage = Math.round((current / total) * 100);
-        win.webContents.send('export-progress', {
-          current,
-          total,
-          percentage,
-          stage
+      const updateProgress = (data) => {
+        // ログ出力
+        console.log(`進捗情報送信: ${JSON.stringify(data)}`);
+        
+        // 直接メインウィンドウに送信（IPC通信）
+        if (win && win.webContents) {
+          win.webContents.send('export-progress', data);
+        } else {
+          console.error('メインウィンドウが利用できないため進捗情報を送信できません');
+        }
+      };
+      
+      // タスク完了後も進捗情報が送信されるように100%の状態を明示的に送信
+      const sendCompletionProgress = () => {
+        updateProgress({
+          percentage: 100,
+          current: options.mediaFiles.length,
+          total: options.mediaFiles.length,
+          stage: 'completed',
+          phase: 'completed',
+          phaseName: '完了',
+          message: 'エクスポートが完了しました',
+          currentStep: 1,
+          totalSteps: 1
         });
+      };
+      
+      // 直接FFmpegの進捗をモニターする関数
+      const monitorFFmpegProgress = () => {
+        // 1秒ごとにタスクの進捗を確認して送信
+        const progressInterval = setInterval(() => {
+          // getTaskメソッドではなくgetTaskByIdメソッドを使用
+          const task = taskManager.getTaskById(taskId);
+          if (!task) {
+            clearInterval(progressInterval);
+            return;
+          }
+          
+          const taskData = task.toJSON();
+          
+          // 詳細な進捗情報を取得して送信
+          if (taskData.details) {
+            updateProgress({
+              ...taskData.details,
+              percentage: taskData.progress || 0,
+              current: taskData.details.currentFile || 0,
+              total: options.mediaFiles.length,
+              stage: taskData.details.phase || 'converting'
+            });
+          } else {
+            // 基本的な進捗情報を送信
+            updateProgress({
+              current: taskData.processedFiles || 0,
+              total: options.mediaFiles.length,
+              percentage: taskData.progress || 0,
+              stage: 'converting'
+            });
+          }
+          
+          // タスクが完了または失敗した場合、インターバルをクリア
+          if (taskData.status === 'completed' || taskData.status === 'failed' || taskData.status === 'cancelled') {
+            if (taskData.status === 'completed') {
+              sendCompletionProgress();
+            }
+            clearInterval(progressInterval);
+          }
+        }, 500); // 500msごとに更新（より滑らかな進捗表示）
       };
       
       // ExportTaskを作成して実行
@@ -143,27 +202,8 @@ function registerExportHandlers() {
       
       console.log(`書き出しタスクを作成しました: ${taskId}`);
       
-      // タスク状態変化を購読して進捗を更新
-      const progressListener = (task) => {
-        if (task.id === taskId) {
-          const taskData = task.toJSON();
-          
-          // 進捗状況を更新
-          updateProgress(
-            taskData.processedFiles || 0, 
-            options.mediaFiles.length, 
-            taskData.details?.phase || 'converting'
-          );
-          
-          // タスクが完了していたら購読解除
-          if (taskData.status === 'completed' || taskData.status === 'failed' || taskData.status === 'cancelled') {
-            taskManager.eventEmitter.off('task-updated', progressListener);
-          }
-        }
-      };
-      
-      // タスク更新イベントを購読
-      taskManager.eventEmitter.on('task-updated', progressListener);
+      // 進捗モニタリングを開始
+      monitorFFmpegProgress();
       
       // タスク完了を待機
       const waitForCompletion = () => new Promise((resolve) => {
@@ -192,6 +232,9 @@ function registerExportHandlers() {
       // タスク完了を待機して結果を返す
       const taskResult = await waitForCompletion();
       console.log('書き出しタスク結果:', taskResult);
+      
+      // 完了時に100%の進捗を送信
+      sendCompletionProgress();
       
       return taskResult || { success: false, error: '不明なエラーが発生しました' };
     } catch (error) {

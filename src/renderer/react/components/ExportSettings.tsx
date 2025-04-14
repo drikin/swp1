@@ -40,6 +40,16 @@ const ExportSettings: React.FC<ExportSettingsProps> = ({ onClose, mediaFiles = [
   const [totalFiles, setTotalFiles] = useState(0);
   const [error, setError] = useState<string | null>(null);
   const [exportResult, setExportResult] = useState<{ success: boolean; outputPath?: string } | null>(null);
+  const [progressDetails, setProgressDetails] = useState<{
+    phase: string;
+    phaseName: string;
+    message: string;
+    currentStep?: number;
+    totalSteps?: number;
+    currentTime?: string;
+    totalDuration?: string;
+    fileName?: string;
+  } | null>(null);
 
   // 初期化時にデスクトップパスを設定
   useEffect(() => {
@@ -66,12 +76,45 @@ const ExportSettings: React.FC<ExportSettingsProps> = ({ onClose, mediaFiles = [
       current: number;
       total: number;
       percentage: number;
-      stage: 'converting' | 'combining';
+      stage?: 'converting' | 'combining';
+      phase?: string;
+      phaseName?: string;
+      message?: string;
+      currentStep?: number;
+      totalSteps?: number;
+      currentTime?: string;
+      totalDuration?: string;
+      fileName?: string;
+      currentFile?: number;
+      totalFiles?: number;
+      overallProgress?: number;
     }) => {
-      setProgress(data.percentage);
-      setStage(data.stage);
-      setProcessedFiles(data.current);
-      setTotalFiles(data.total);
+      // 基本的な進捗情報の更新
+      setProgress(data.percentage || data.overallProgress || 0);
+      
+      if (data.stage) {
+        setStage(data.stage);
+      }
+      
+      if (data.current !== undefined && data.total !== undefined) {
+        setProcessedFiles(data.current);
+        setTotalFiles(data.total);
+      } else if (data.currentFile !== undefined && data.totalFiles !== undefined) {
+        setProcessedFiles(data.currentFile);
+        setTotalFiles(data.totalFiles);
+      }
+      
+      // 詳細な進捗情報の更新
+      setProgressDetails({
+        phase: data.phase || '',
+        phaseName: data.phaseName || '',
+        message: data.message || '',
+        currentStep: data.currentStep,
+        totalSteps: data.totalSteps,
+        currentTime: data.currentTime,
+        totalDuration: data.totalDuration,
+        fileName: data.fileName
+      });
     };
 
     if (window.api) {
@@ -86,6 +129,45 @@ const ExportSettings: React.FC<ExportSettingsProps> = ({ onClose, mediaFiles = [
       }
     };
   }, []);
+
+  // 進捗状況のテキスト
+  const getProgressText = () => {
+    // 詳細な進捗情報があればそれを優先して表示
+    if (progressDetails) {
+      if (progressDetails.message) {
+        return progressDetails.message;
+      }
+      
+      if (progressDetails.phaseName) {
+        let text = progressDetails.phaseName;
+        
+        // ステップ情報があれば追加
+        if (progressDetails.currentStep && progressDetails.totalSteps) {
+          text += ` (ステップ ${progressDetails.currentStep}/${progressDetails.totalSteps})`;
+        }
+        
+        // ファイル名があれば追加
+        if (progressDetails.fileName) {
+          text += ` - ${progressDetails.fileName}`;
+        }
+        
+        // 時間情報があれば追加
+        if (progressDetails.currentTime && progressDetails.totalDuration) {
+          text += ` - ${progressDetails.currentTime}/${progressDetails.totalDuration}`;
+        }
+        
+        return text;
+      }
+    }
+    
+    // 従来の表示方法（フォールバック）
+    if (stage === 'converting') {
+      return `素材変換中 (${processedFiles}/${totalFiles})`;
+    } else if (stage === 'combining') {
+      return '動画結合中...';
+    }
+    return 'エクスポート中...';
+  };
 
   // 出力先フォルダの選択
   const handleSelectOutputPath = async () => {
@@ -145,16 +227,6 @@ const ExportSettings: React.FC<ExportSettingsProps> = ({ onClose, mediaFiles = [
     } finally {
       setIsExporting(false);
     }
-  };
-
-  // 進捗状況のテキスト
-  const getProgressText = () => {
-    if (stage === 'converting') {
-      return `素材変換中 (${processedFiles}/${totalFiles})`;
-    } else if (stage === 'combining') {
-      return '動画結合中...';
-    }
-    return 'エクスポート中...';
   };
 
   return (
@@ -346,24 +418,79 @@ const ExportSettings: React.FC<ExportSettingsProps> = ({ onClose, mediaFiles = [
             </Box>
           )}
           
-          {/* 進捗表示 */}
+          {/* 進捗状況表示エリア */}
           {isExporting && (
-            <Box>
-              <Box sx={{ mb: 2 }}>
+            <Box className="export-progress">
+              <Box className="progress-info">
                 <Typography variant="body2" sx={{ mb: 1 }}>
                   {getProgressText()}
                 </Typography>
-                <LinearProgress 
-                  variant="determinate" 
-                  value={progress} 
-                  sx={{ height: 10, borderRadius: 5 }}
-                />
-                <Box sx={{ display: 'flex', justifyContent: 'flex-end', mt: 0.5 }}>
-                  <Typography variant="caption" color="text.secondary">
-                    {progress}%
+                {progressDetails?.currentStep && progressDetails?.totalSteps && (
+                  <Typography variant="caption" display="block" sx={{ color: 'text.secondary', mb: 0.5 }}>
+                    進行状況: ステップ {progressDetails.currentStep}/{progressDetails.totalSteps}
                   </Typography>
-                </Box>
+                )}
               </Box>
+              
+              <Box className="progress-bar-container" sx={{ 
+                position: 'relative', 
+                height: 20, 
+                bgcolor: 'background.paper',
+                borderRadius: 1,
+                border: 1,
+                borderColor: 'divider',
+                mb: 2
+              }}>
+                <Box 
+                  className="progress-bar" 
+                  sx={{ 
+                    width: `${progress}%`, 
+                    height: '100%', 
+                    bgcolor: 'primary.main',
+                    borderRadius: 1,
+                    transition: 'width 0.3s ease'
+                  }}
+                />
+                <Typography 
+                  variant="caption" 
+                  sx={{ 
+                    position: 'absolute', 
+                    top: '50%', 
+                    left: '50%', 
+                    transform: 'translate(-50%, -50%)',
+                    color: 'text.primary'
+                  }}
+                >
+                  {`${progress}%`}
+                </Typography>
+              </Box>
+              
+              {/* 詳細情報表示エリア */}
+              {progressDetails && (
+                <Box sx={{ 
+                  p: 1, 
+                  mb: 2, 
+                  borderRadius: 1, 
+                  bgcolor: 'action.hover',
+                  fontSize: '0.75rem'
+                }}>
+                  <Typography variant="caption" display="block" sx={{ fontWeight: 'bold' }}>
+                    現在の処理: {progressDetails.phaseName || progressDetails.phase || '処理中'}
+                  </Typography>
+                  
+                  {progressDetails.fileName && (
+                    <Typography variant="caption" display="block">
+                      ファイル: {progressDetails.fileName}
+                    </Typography>
+                  )}
+                  
+                  {progressDetails.currentTime && progressDetails.totalDuration && (
+                    <Typography variant="caption" display="block">
+                      時間: {progressDetails.currentTime}/{progressDetails.totalDuration}
+                    </Typography>
+                  )}
+                </Box>
+              )}
             </Box>
           )}
           

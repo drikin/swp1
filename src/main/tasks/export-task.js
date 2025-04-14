@@ -174,22 +174,15 @@ class ExportTask extends BaseTask {
    * @returns {Promise<Object>} 書き出し結果
    */
   async execute() {
-    // デバッグ用の詳細なデータ構造表示
-    console.log('===== 書き出しタスク開始 =====');
-    console.log('タスクID:', this.id);
-    console.log('メディアファイル構造:', JSON.stringify({
-      type: typeof this.mediaFiles,
-      isArray: Array.isArray(this.mediaFiles),
-      length: this.mediaFiles ? this.mediaFiles.length : 0
-    }));
-    
     try {
-      // メディアファイルのチェック
-      if (!this.mediaFiles || !Array.isArray(this.mediaFiles) || this.mediaFiles.length === 0) {
-        return this.fail('エクスポートするメディアファイルがありません');
+      console.log(`===== 動画書き出しタスク開始 [${this.id}] =====`);
+      
+      // メディアファイルの検証
+      if (!this.mediaFiles || this.mediaFiles.length === 0) {
+        throw new Error('メディアファイルが指定されていません');
       }
       
-      // 詳細なメディアファイル情報を出力
+      console.log('メディアファイル数:', this.mediaFiles.length);
       console.log('メディアファイル詳細:', this.mediaFiles.map((file, index) => {
         if (typeof file === 'string') {
           return { index, type: 'string', path: file };
@@ -225,15 +218,73 @@ class ExportTask extends BaseTask {
         fs.mkdirSync(outputDir, { recursive: true });
       }
       
-      // 進行状況を更新
-      this.updateProgress(0, { phase: 'initializing' });
+      // 初期化フェーズ
+      this.updateProgress(0, { 
+        phase: 'initializing', 
+        phaseName: '初期化中',
+        currentStep: 0,
+        totalSteps: this.pipeline.steps.length,
+        message: '書き出し処理を準備しています...'
+      });
       
       // 一時ディレクトリの作成
       this._createTempDir();
       
-      // 進捗コールバック
+      // 進捗コールバック - より詳細な進捗情報を提供
       const progressCallback = (progress, details) => {
-        this.updateProgress(progress, details);
+        // ステップごとの進捗状況を計算
+        const pipelineSteps = this.pipeline.steps;
+        const currentStepIndex = pipelineSteps.findIndex(step => step.name === details.phase);
+        
+        // フェーズ名を日本語に変換
+        let phaseName = details.phase;
+        if (details.phase === 'trimming') phaseName = 'トリミング';
+        else if (details.phase === 'loudness_normalization') phaseName = 'ラウドネス調整';
+        else if (details.phase === 'combining') phaseName = '動画結合';
+        else if (details.phase === 'combining_init') phaseName = '結合準備';
+        else if (details.phase === 'combining_complete') phaseName = '結合完了';
+        
+        // 詳細なメッセージを生成
+        let message = details.message || '';
+        if (!message) {
+          if (details.fileName) {
+            message = `${details.fileName} を処理中...`;
+          } else if (details.currentFile && details.totalFiles) {
+            message = `ファイル ${details.currentFile}/${details.totalFiles} を処理中...`;
+          } else if (details.currentTime && details.totalDuration) {
+            message = `処理中: ${details.currentTime} / ${details.totalDuration}`;
+          } else if (details.phase === 'initializing') {
+            message = '書き出し処理を準備しています...';
+          } else if (details.phase === 'trimming') {
+            message = 'ファイルをトリミングしています...';
+          } else if (details.phase === 'loudness_normalization') {
+            message = 'ラウドネス調整を行っています...';
+          } else if (details.phase === 'combining') {
+            message = '動画を結合しています...';
+          } else if (details.phase === 'combining_complete') {
+            message = '書き出しが完了しました';
+          }
+        }
+
+        // 全体の進捗を計算（パイプラインステップの割合を考慮）
+        let overallProgress = progress;
+        if (currentStepIndex >= 0 && pipelineSteps.length > 0) {
+          // 各ステップの進捗率を均等に配分
+          const stepProgress = 100 / pipelineSteps.length;
+          overallProgress = (currentStepIndex * stepProgress) + (progress * stepProgress / 100);
+        }
+        
+        // 進捗情報のログ出力
+        console.log(`進捗更新: phase=${details.phase}, progress=${progress}%, overall=${Math.round(overallProgress)}%, message=${message}`);
+        
+        this.updateProgress(overallProgress, {
+          ...details,
+          phaseName,
+          message,
+          currentStep: currentStepIndex + 1,
+          totalSteps: pipelineSteps.length,
+          overallProgress: Math.round(overallProgress)
+        });
       };
       
       // パイプラインを実行

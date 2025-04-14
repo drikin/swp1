@@ -37,49 +37,283 @@ class CombineStep extends ExportStep {
    * @returns {Promise<ExportContext>} - 更新されたコンテキスト
    */
   async execute(context, progressCallback) {
-    console.log('結合ステップ開始');
-    progressCallback(0, { phase: 'combining_init' });
+    if (!this.canExecute(context)) {
+      return context;
+    }
     
     try {
-      // 入力ファイルリストを作成
-      const inputListPath = await this._createInputFileList(context);
-      
-      // 出力ファイルパスを取得または生成
-      let outputPath = context.outputPath || this._getOutputFilePath(context);
-      
-      // 出力パスがディレクトリの場合はファイル名を追加
-      if (fs.existsSync(outputPath) && fs.statSync(outputPath).isDirectory()) {
-        const format = context.settings.format || this.format || 'mp4';
-        const date = new Date();
-        const timestamp = `${date.getFullYear()}${(date.getMonth() + 1).toString().padStart(2, '0')}${date.getDate().toString().padStart(2, '0')}_${date.getHours().toString().padStart(2, '0')}${date.getMinutes().toString().padStart(2, '0')}${date.getSeconds().toString().padStart(2, '0')}`;
-        outputPath = path.join(outputPath, `export_${timestamp}.${format}`);
+      // 進捗コールバックを初期化
+      if (progressCallback) {
+        progressCallback(0, { 
+          phase: 'combining_init', 
+          message: '結合処理の準備をしています' 
+        });
       }
       
-      console.log(`最終出力先パス: ${outputPath}`);
+      // 入力ファイルリストを作成
+      const inputFiles = await this._createInputFileList(context);
       
-      // 動画を結合
-      await this._combineVideos(inputListPath, outputPath, context, progressCallback);
+      if (inputFiles.length === 0) {
+        throw new Error('結合する入力ファイルがありません');
+      }
       
-      // 結果をコンテキストに設定
+      // 出力パスを取得
+      const outputPath = this._getOutputFilePath(context);
+      console.log(`結合出力先: ${outputPath}`);
+      
+      if (progressCallback) {
+        progressCallback(10, { 
+          phase: 'combining', 
+          message: '結合処理を開始しています',
+          currentFile: 0,
+          totalFiles: inputFiles.length
+        });
+      }
+      
+      // 結合処理を実行
+      if (inputFiles.length === 1) {
+        // 単一ファイルの場合はコピー
+        await this._copySingleFile(inputFiles[0], outputPath, context, progressCallback);
+      } else {
+        // 複数ファイルの場合は結合
+        await this._combineVideos(inputFiles, outputPath, context, progressCallback);
+      }
+      
+      // 結果を設定
       context.result = {
         success: true,
         outputPath: outputPath
       };
       
-      context.setMetadata('combining', { 
-        completed: true,
-        timestamp: new Date().toISOString(),
-        outputPath: outputPath
-      });
-      
-      progressCallback(100, { phase: 'combining_complete' });
-      console.log('結合ステップ完了');
+      if (progressCallback) {
+        progressCallback(100, { 
+          phase: 'combining_complete', 
+          message: '結合処理が完了しました',
+          outputPath: outputPath
+        });
+      }
       
       return context;
     } catch (error) {
-      console.error('結合ステップエラー:', error);
+      console.error(`結合ステップでエラーが発生しました: ${error.message}`);
+      console.error(error.stack);
       throw error;
     }
+  }
+  
+  /**
+   * 単一ファイルをコピー
+   * @private
+   */
+  async _copySingleFile(inputFile, outputPath, context, progressCallback) {
+    // FFmpegを使用して単純なコピー処理（再エンコードなし）
+    return new Promise((resolve, reject) => {
+      const ffmpegPath = getFFmpegPath();
+      const args = [
+        '-i', inputFile,
+        '-c', 'copy',  // コーデックはコピー（再エンコードなし）
+        '-y',  // 出力ファイルが存在する場合は上書き
+        outputPath
+      ];
+      
+      console.log(`単一ファイルコピーコマンド: ${ffmpegPath} ${args.join(' ')}`);
+      
+      const ffmpegProcess = spawn(ffmpegPath, args);
+      let duration = 0;
+      let currentTime = 0;
+      
+      ffmpegProcess.stderr.on('data', (data) => {
+        const output = data.toString();
+        
+        // 動画の長さを検出（Duration: 00:00:30.57）
+        const durationMatch = output.match(/Duration: (\d+):(\d+):(\d+\.\d+)/);
+        if (durationMatch) {
+          const hours = parseInt(durationMatch[1]);
+          const minutes = parseInt(durationMatch[2]);
+          const seconds = parseFloat(durationMatch[3]);
+          duration = (hours * 3600) + (minutes * 60) + seconds;
+        }
+        
+        // 現在の処理位置を検出（time=00:00:14.43）
+        const timeMatch = output.match(/time=(\d+):(\d+):(\d+\.\d+)/);
+        if (timeMatch && progressCallback) {
+          const hours = parseInt(timeMatch[1]);
+          const minutes = parseInt(timeMatch[2]);
+          const seconds = parseFloat(timeMatch[3]);
+          currentTime = (hours * 3600) + (minutes * 60) + seconds;
+          
+          // 進捗率を計算
+          const progress = duration > 0 ? Math.min(Math.round((currentTime / duration) * 100), 100) : 0;
+          
+          // 時間を mm:ss 形式に変換
+          const currentTimeFormatted = this._formatTime(currentTime);
+          const durationFormatted = this._formatTime(duration);
+          
+          progressCallback(progress, {
+            phase: 'combining',
+            message: `ファイルを処理中: ${currentTimeFormatted} / ${durationFormatted}`,
+            currentTime: currentTimeFormatted,
+            totalDuration: durationFormatted,
+            currentFile: 1,
+            totalFiles: 1,
+            fileName: path.basename(inputFile)
+          });
+        }
+      });
+      
+      ffmpegProcess.on('close', (code) => {
+        if (code === 0) {
+          console.log(`単一ファイルのコピーが成功しました: ${outputPath}`);
+          resolve();
+        } else {
+          console.error(`FFmpegプロセスがコード ${code} で終了しました`);
+          reject(new Error(`FFmpegプロセスがコード ${code} で終了しました`));
+        }
+      });
+      
+      ffmpegProcess.on('error', (err) => {
+        console.error('FFmpegプロセスでエラーが発生しました:', err);
+        reject(err);
+      });
+    });
+  }
+  
+  /**
+   * 複数の動画を結合
+   * @private
+   */
+  async _combineVideos(inputFiles, outputPath, context, progressCallback) {
+    return new Promise((resolve, reject) => {
+      const ffmpegPath = getFFmpegPath();
+      
+      // 入力ファイルの引数を構築
+      const inputArgs = [];
+      inputFiles.forEach(file => {
+        inputArgs.push('-i', file);
+      });
+      
+      // フィルタコンプレックスを構築
+      const filterComplex = [];
+      for (let i = 0; i < inputFiles.length; i++) {
+        filterComplex.push(`[${i}:v:0][${i}:a:0]`);
+      }
+      
+      // ffmpegコマンド引数
+      const args = [
+        ...inputArgs,
+        '-filter_complex', `${filterComplex.join('')}concat=n=${inputFiles.length}:v=1:a=1[outv][outa]`,
+        '-map', '[outv]',
+        '-map', '[outa]'
+      ];
+      
+      // 解像度が指定されている場合
+      if (this.resolution && this.resolution !== 'original') {
+        if (this.resolution === '1080p') {
+          args.push('-vf', 'scale=-1:1080');
+        } else if (this.resolution === '720p') {
+          args.push('-vf', 'scale=-1:720');
+        } else if (this.resolution === '4k') {
+          args.push('-vf', 'scale=-1:2160');
+        }
+      }
+      
+      // コーデックが指定されている場合
+      if (this.codec) {
+        if (this.codec === 'h265') {
+          args.push('-c:v', 'libx265', '-crf', '23');
+        } else if (this.codec === 'h264') {
+          args.push('-c:v', 'libx264', '-crf', '23');
+        } else if (this.codec === 'copy') {
+          args.push('-c:v', 'copy');
+        }
+      } else {
+        // デフォルトコーデック
+        args.push('-c:v', 'libx264', '-crf', '23');
+      }
+      
+      // 音声コーデック
+      args.push('-c:a', 'aac', '-b:a', '192k');
+      
+      // フレームレート
+      if (this.fps && this.fps !== 'original') {
+        args.push('-r', this.fps);
+      }
+      
+      // 出力ファイル
+      args.push('-y', outputPath);
+      
+      console.log(`FFmpeg結合コマンド: ${ffmpegPath} ${args.join(' ')}`);
+      
+      const ffmpegProcess = spawn(ffmpegPath, args);
+      let duration = 0;
+      let currentTime = 0;
+      
+      ffmpegProcess.stderr.on('data', (data) => {
+        const output = data.toString();
+        
+        // 動画の長さを検出（Duration: 00:00:30.57）
+        const durationMatch = output.match(/Duration: (\d+):(\d+):(\d+\.\d+)/);
+        if (durationMatch) {
+          const hours = parseInt(durationMatch[1]);
+          const minutes = parseInt(durationMatch[2]);
+          const seconds = parseFloat(durationMatch[3]);
+          duration = (hours * 3600) + (minutes * 60) + seconds;
+        }
+        
+        // 現在の処理位置を検出（time=00:00:14.43）
+        const timeMatch = output.match(/time=(\d+):(\d+):(\d+\.\d+)/);
+        if (timeMatch && progressCallback) {
+          const hours = parseInt(timeMatch[1]);
+          const minutes = parseInt(timeMatch[2]);
+          const seconds = parseFloat(timeMatch[3]);
+          currentTime = (hours * 3600) + (minutes * 60) + seconds;
+          
+          // 進捗率を計算
+          const progress = duration > 0 ? Math.min(Math.round((currentTime / duration) * 100), 100) : 0;
+          
+          // 時間を mm:ss 形式に変換
+          const currentTimeFormatted = this._formatTime(currentTime);
+          const durationFormatted = this._formatTime(duration);
+          
+          progressCallback(progress, {
+            phase: 'combining',
+            message: `複数ファイルを結合中: ${currentTimeFormatted} / ${durationFormatted}`,
+            currentTime: currentTimeFormatted,
+            totalDuration: durationFormatted,
+            currentFile: progress,
+            totalFiles: 100,
+            fileCount: inputFiles.length
+          });
+        }
+      });
+      
+      ffmpegProcess.on('close', (code) => {
+        if (code === 0) {
+          console.log(`動画結合が成功しました: ${outputPath}`);
+          resolve();
+        } else {
+          console.error(`FFmpegプロセスがコード ${code} で終了しました`);
+          reject(new Error(`FFmpegプロセスがコード ${code} で終了しました`));
+        }
+      });
+      
+      ffmpegProcess.on('error', (err) => {
+        console.error('FFmpegプロセスでエラーが発生しました:', err);
+        reject(err);
+      });
+    });
+  }
+  
+  /**
+   * 時間を mm:ss 形式にフォーマット
+   * @param {number} timeInSeconds - 秒単位の時間
+   * @returns {string} - フォーマットされた時間
+   * @private
+   */
+  _formatTime(timeInSeconds) {
+    const minutes = Math.floor(timeInSeconds / 60);
+    const seconds = Math.floor(timeInSeconds % 60);
+    return `${minutes.toString().padStart(2, '0')}:${seconds.toString().padStart(2, '0')}`;
   }
   
   /**

@@ -115,6 +115,12 @@ class TaskManager {
     
     // イベントリスナー設定
     task.on('progress', (progress, details) => {
+      // 進捗情報のログ出力
+      console.log(`タスク進捗イベント: [${task.id}], progress=${progress}, details=`, JSON.stringify(details || {}));
+      
+      // task-updated イベントを発行（詳細情報を含む）
+      this.eventEmitter.emit('task-updated', task);
+      
       this.emitTasksUpdated();
     });
     
