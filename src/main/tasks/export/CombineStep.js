@@ -468,7 +468,7 @@ class CombineStep extends ExportStep {
         // H.264 (VideoToolbox ハードウェアアクセラレーション)
         codecParams = [
           '-c:v', 'h264_videotoolbox',
-          '-b:v', '10M',
+          '-b:v', '150M', // 150Mbps
           '-profile:v', 'high',
           '-r', fps,
           '-pix_fmt', 'yuv420p'
@@ -479,7 +479,7 @@ class CombineStep extends ExportStep {
         // H.265/HEVC (VideoToolbox ハードウェアアクセラレーション)
         codecParams = [
           '-c:v', 'hevc_videotoolbox',
-          '-b:v', '8M',
+          '-b:v', '100M', // 100Mbps
           '-tag:v', 'hvc1', // iOSとの互換性のためにHEVCのタグを指定
           '-r', fps,
           '-pix_fmt', 'yuv420p'
@@ -487,12 +487,11 @@ class CombineStep extends ExportStep {
         break;
       
       case 'prores_hq':
-        // Apple ProRes HQ
+        // Apple ProRes HQ (VideoToolbox ハードウェアアクセラレーション利用)
         codecParams = [
-          '-c:v', 'prores_ks',
+          '-c:v', 'prores_videotoolbox',
           '-profile:v', '3', // 3=HQ
           '-r', fps,
-          '-vendor', 'ap10',
           '-pix_fmt', 'yuv422p10le'
         ];
         break;
@@ -501,7 +500,7 @@ class CombineStep extends ExportStep {
         // デフォルトはH.265
         codecParams = [
           '-c:v', 'hevc_videotoolbox',
-          '-b:v', '8M',
+          '-b:v', '100M', // 100Mbps
           '-tag:v', 'hvc1',
           '-r', fps,
           '-pix_fmt', 'yuv420p'
@@ -606,7 +605,7 @@ class CombineStep extends ExportStep {
         }
       }
       
-      // 安全な結合方法を使用: 一時ファイルを作成し、それを結合
+      // 安全な結合方法：一時ファイルを作成し、それを結合
       // 入力ファイルリストから実際のファイルパスを取得
       let inputFiles = [];
       try {
@@ -642,6 +641,8 @@ class CombineStep extends ExportStep {
         console.log('=== FFmpeg実行コマンド（単純コピー） ===');
         console.log(ffmpegCmd);
         console.log('========================');
+        
+        progressCallback(10, { phase: 'combining' });
         
         this.ffmpegProcess = spawn(ffmpegPath, args);
         
@@ -727,8 +728,7 @@ class CombineStep extends ExportStep {
       this.ffmpegProcess = spawn(ffmpegPath, args);
       
       this.ffmpegProcess.stdout.on('data', (data) => {
-        const output = data.toString();
-        console.log(`FFmpeg stdout: ${output}`);
+        console.log(`FFmpeg stdout: ${data.toString()}`);
       });
       
       let lastProgress = 10;
