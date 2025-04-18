@@ -16,6 +16,8 @@ const {
 } = require('./app-lifecycle');
 const { registerHandler } = require('../ipc-registry');
 const { checkVideoToolboxSupport } = utils;
+const fs = require('fs').promises;
+const path = require('path');
 
 /**
  * すべてのIPCハンドラーを登録
@@ -38,9 +40,76 @@ function registerIpcHandlers() {
     return app.getPath('desktop');
   });
   
+  // フォルダー内メディアファイルの再帰的検索ハンドラー
+  registerHandler(ipcMain, 'scan-folder-for-media', async (_, folderPath) => {
+    try {
+      console.log(`フォルダー内のメディアファイルを検索: ${folderPath}`);
+      const mediaExtensions = ['.mp4', '.avi', '.mov', '.mkv', '.webm', '.m4v', '.3gp', '.flv', '.wmv'];
+      const mediaFiles = [];
+      
+      // フォルダを再帰的に検索する関数
+      async function scanFolder(directory) {
+        try {
+          // フォルダの内容を取得
+          const items = await fs.readdir(directory);
+          
+          // 各項目を処理
+          for (const item of items) {
+            const itemPath = path.join(directory, item);
+            const stats = await fs.stat(itemPath);
+            
+            if (stats.isDirectory()) {
+              // ディレクトリの場合は再帰的に処理
+              await scanFolder(itemPath);
+            } else if (stats.isFile()) {
+              // ファイルの場合は拡張子を確認
+              const ext = path.extname(itemPath).toLowerCase();
+              if (mediaExtensions.includes(ext)) {
+                mediaFiles.push(itemPath);
+              }
+            }
+          }
+        } catch (error) {
+          console.error(`フォルダ検索エラー ${directory}:`, error);
+          // エラーが発生しても処理を継続
+        }
+      }
+      
+      // 指定されたフォルダの再帰的検索を開始
+      await scanFolder(folderPath);
+      console.log(`検出されたメディアファイル: ${mediaFiles.length}件`);
+      return mediaFiles;
+    } catch (error) {
+      console.error('フォルダー検索エラー:', error);
+      return [];
+    }
+  });
+  
+  // パスの情報を取得するハンドラー
+  registerHandler(ipcMain, 'get-path-stats', async (_, pathToCheck) => {
+    try {
+      console.log(`パス情報取得: ${pathToCheck}`);
+      const stats = await fs.stat(pathToCheck);
+      return {
+        exists: true,
+        isDirectory: stats.isDirectory(),
+        isFile: stats.isFile(),
+        size: stats.size,
+        mtime: stats.mtime
+      };
+    } catch (error) {
+      console.error(`パス情報取得エラー ${pathToCheck}:`, error);
+      return {
+        exists: false,
+        isDirectory: false,
+        isFile: false,
+        error: error.message
+      };
+    }
+  });
+  
   // ファイル読み込みハンドラー
   registerHandler(ipcMain, 'read-file', async (_, filePath) => {
-    const fs = require('fs').promises;
     try {
       if (!filePath) {
         return { success: false, error: 'ファイルパスが指定されていません' };

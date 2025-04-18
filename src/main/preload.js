@@ -49,7 +49,11 @@ try {
     'get-task-result',     // タスク結果取得
     'find-tasks-by-media', // メディアパスからタスク検索
     'get-task-types',      // タスク種類一覧取得
-    'clean-tasks-history'  // 古いタスク履歴をクリア
+    'clean-tasks-history', // 古いタスク履歴をクリア
+    
+    // フォルダ再帰検索用API（追加）
+    'get-path-stats',      // パス情報取得（ファイルかフォルダかの判定）
+    'scan-folder-for-media' // フォルダ内のメディアファイルを再帰的に検索
   ];
   
   const validEventChannels = [

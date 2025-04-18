@@ -48,9 +48,25 @@ export const useFileDragDrop = (
     };
 
     /**
+     * フォルダーを再帰的に処理してメディアファイルを取得する
+     * @param folderPath 処理するフォルダーのパス
+     * @returns 処理結果を通知するPromise
+     */
+    const processFolder = async (folderPath: string): Promise<string[]> => {
+      try {
+        // メインプロセスにフォルダー内のメディアファイルを再帰的に検索するよう要求
+        const mediaFiles = await window.api.invoke('scan-folder-for-media', folderPath);
+        return mediaFiles;
+      } catch (error) {
+        console.error('フォルダー処理エラー:', error);
+        return [];
+      }
+    };
+
+    /**
      * ドロップ時の処理
      */
-    const handleDrop = (e: DragEvent) => {
+    const handleDrop = async (e: DragEvent) => {
       e.preventDefault();
       e.stopPropagation();
       setIsDragging(false);
@@ -58,24 +74,56 @@ export const useFileDragDrop = (
       // ファイルがドロップされた場合
       if (e.dataTransfer?.files?.length) {
         const files = e.dataTransfer.files;
-        const filePaths: string[] = [];
+        let filePaths: string[] = [];
         
         // FileSystemFileEntryを取得できる場合
         if (e.dataTransfer.items) {
+          const processPromises: Promise<string[]>[] = [];
+          
           for (let i = 0; i < e.dataTransfer.items.length; i++) {
             const item = e.dataTransfer.items[i];
             if (item.kind === 'file') {
               const file = item.getAsFile();
               if (file && 'path' in file) {
-                // Electron環境ではファイルパスが取得できる
-                filePaths.push((file as any).path);
+                const path = (file as any).path;
+                
+                // フォルダーかファイルかを判断
+                try {
+                  const stats = await window.api.invoke('get-path-stats', path);
+                  
+                  if (stats.isDirectory) {
+                    // フォルダーの場合は再帰的に処理
+                    processPromises.push(processFolder(path));
+                  } else {
+                    // 通常のファイルの場合はそのまま追加
+                    filePaths.push(path);
+                  }
+                } catch (error) {
+                  console.error('パス解析エラー:', error);
+                  // エラーが発生してもファイルとして扱おうとする
+                  filePaths.push(path);
+                }
               }
+            }
+          }
+          
+          // すべてのフォルダー処理が完了するのを待つ
+          if (processPromises.length > 0) {
+            try {
+              const folderResults = await Promise.all(processPromises);
+              // フォルダーから取得したファイルを結合
+              for (const result of folderResults) {
+                filePaths = [...filePaths, ...result];
+              }
+            } catch (error) {
+              console.error('フォルダー処理中にエラーが発生しました:', error);
             }
           }
         }
         
         if (filePaths.length) {
-          onDropFiles(filePaths);
+          // 重複を除去して渡す
+          onDropFiles([...new Set(filePaths)]);
         }
       }
     };
