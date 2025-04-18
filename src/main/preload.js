@@ -28,6 +28,7 @@ try {
   const validInvokeChannels = [
     'open-file-dialog',
     'open-directory-dialog',
+    'open-file-or-directory-dialog', // 新しいファイル/フォルダー選択ダイアログ
     'get-desktop-path',
     'check-ffmpeg',
     'get-media-info',
@@ -345,6 +346,7 @@ try {
     // ファイル操作関連
     openFileDialog: (paths) => ipcRenderer.invoke('open-file-dialog', paths),
     openDirectoryDialog: () => ipcRenderer.invoke('open-directory-dialog'),
+    openFileOrDirectoryDialog: () => ipcRenderer.invoke('open-file-or-directory-dialog'), // 新しいファイル/フォルダー選択ダイアログ
     getDesktopPath: () => ipcRenderer.invoke('get-desktop-path'),
     
     // タスク関連メソッド

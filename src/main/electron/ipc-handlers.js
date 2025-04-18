@@ -6,7 +6,8 @@ const { ipcMain, app } = require('electron');
 const { 
   openFileDialog, 
   openDirectoryDialog, 
-  getDesktopPath 
+  getDesktopPath,
+  openFileOrDirectoryDialog
 } = require('../services/dialog-service');
 const { getFFmpegService, utils } = require('../services/ffmpeg/index');
 const ffmpegService = getFFmpegService();
@@ -34,6 +35,12 @@ function registerIpcHandlers() {
   registerHandler(ipcMain, 'open-directory-dialog', async () => {
     const win = getMainWindow();
     return win ? await openDirectoryDialog(win) : [];
+  });
+  
+  // ファイルまたはフォルダー選択ダイアログを開くハンドラー
+  registerHandler(ipcMain, 'open-file-or-directory-dialog', async () => {
+    const win = getMainWindow();
+    return win ? await openFileOrDirectoryDialog(win) : { filePaths: [], isDirectory: false };
   });
   
   registerHandler(ipcMain, 'get-desktop-path', () => {

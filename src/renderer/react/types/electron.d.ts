@@ -25,6 +25,12 @@ interface FileDialogResult {
   filePaths: string[];
 }
 
+// ファイル/フォルダー選択の結果
+interface FileOrDirectoryDialogResult {
+  filePaths: string[];
+  isDirectory: boolean;
+}
+
 // IPCレンダラーAPIの型定義
 interface ElectronAPI {
   // 基本的なIPC通信
@@ -48,6 +54,7 @@ interface ElectronAPI {
   // ファイル操作API
   openFileDialog: (options?: any) => Promise<string[]>;
   openDirectoryDialog: () => Promise<string[]>;
+  openFileOrDirectoryDialog: () => Promise<FileOrDirectoryDialogResult>;
   getDesktopPath: () => Promise<string>;
   
   // FFmpeg関連API

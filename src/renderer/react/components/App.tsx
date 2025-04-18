@@ -120,19 +120,53 @@ const App: React.FC = () => {
   // ファイル追加処理
   async function handleAddFiles() {
     try {
-      // ファイル選択ダイアログでパスを取得
-      const filePaths = await window.api.invoke('open-file-dialog');
+      // 新しいファイル/フォルダー選択ダイアログを使用
+      const result = await window.api.invoke('open-file-or-directory-dialog') as { filePaths: string[], isDirectory: boolean };
       
-      if (filePaths && filePaths.length > 0) {
-        setStatus(`ファイルを追加中...`);
+      if (result.filePaths && result.filePaths.length > 0) {
+        setStatus(`選択したパスを処理中...`);
         
-        // メディアコンテキストを使用してファイルを追加
-        const mediaFiles = await addMediaFiles(filePaths);
-        
-        if (mediaFiles.length > 0) {
-          setStatus(`${mediaFiles.length}件のファイルを追加しました`);
+        // フォルダが選択された場合は、再帰的に検索
+        if (result.isDirectory) {
+          setStatus(`フォルダ内のメディアファイルを検索中...`);
+          
+          // 並行処理で複数のフォルダを処理
+          const mediaPathsPromises = result.filePaths.map(async (folderPath) => {
+            return await window.api.invoke('scan-folder-for-media', folderPath) as string[];
+          });
+          
+          // 全てのフォルダ処理を待機
+          const mediaPathArrays = await Promise.all(mediaPathsPromises);
+          
+          // 結果を平坦化して、重複を除去
+          const uniqueMediaPaths = [...new Set(mediaPathArrays.flat())] as string[];
+          
+          if (uniqueMediaPaths.length > 0) {
+            setStatus(`${uniqueMediaPaths.length}件のメディアファイルを追加中...`);
+            
+            // メディアコンテキストを使用してファイルを追加
+            const mediaFiles = await addMediaFiles(uniqueMediaPaths);
+            
+            if (mediaFiles.length > 0) {
+              setStatus(`${mediaFiles.length}件のファイルを追加しました`);
+            } else {
+              setStatus('ファイルの追加に失敗しました');
+            }
+          } else {
+            setStatus('フォルダ内に対応するメディアファイルが見つかりませんでした');
+          }
         } else {
-          setStatus('ファイルの追加に失敗しました');
+          // 通常のファイル選択の場合は従来通り処理
+          setStatus(`ファイルを追加中...`);
+          
+          // メディアコンテキストを使用してファイルを追加
+          const mediaFiles = await addMediaFiles(result.filePaths);
+          
+          if (mediaFiles.length > 0) {
+            setStatus(`${mediaFiles.length}件のファイルを追加しました`);
+          } else {
+            setStatus('ファイルの追加に失敗しました');
+          }
         }
       }
     } catch (error) {

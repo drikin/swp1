@@ -47,6 +47,57 @@ class DialogService {
   }
 
   /**
+   * ファイルまたはフォルダーを選択するダイアログを開く
+   * @param {BrowserWindow} win ブラウザウィンドウインスタンス
+   * @returns {Promise<{filePaths: string[], isDirectory: boolean}>} 選択されたパスの配列とディレクトリかどうかのフラグ
+   */
+  async openFileOrDirectoryDialog(win) {
+    // まずファイル選択とフォルダー選択どちらをするか選ぶダイアログを表示
+    const selectionType = await dialog.showMessageBox(win, {
+      type: 'question',
+      buttons: ['ファイルを選択', 'キャンセル', 'フォルダーを選択'],
+      defaultId: 0,
+      title: '素材追加',
+      message: 'ファイルまたはフォルダーを選択してください',
+      detail: 'ファイルを直接選択するか、メディアファイルを含むフォルダー全体を選択できます。フォルダーを選択すると、フォルダー内のすべての対応メディアファイルが再帰的に追加されます。'
+    });
+
+    // キャンセルが選択された場合
+    if (selectionType.response === 1) {
+      return { filePaths: [], isDirectory: false };
+    }
+
+    // フォルダー選択が選択された場合
+    if (selectionType.response === 2) {
+      const result = await dialog.showOpenDialog(win, {
+        properties: ['openDirectory', 'multiSelections'],
+        title: 'メディアフォルダーを選択'
+      });
+      
+      return { 
+        filePaths: result.canceled ? [] : result.filePaths, 
+        isDirectory: true 
+      };
+    }
+
+    // ファイル選択が選択された場合（デフォルト）
+    const result = await dialog.showOpenDialog(win, {
+      properties: ['openFile', 'multiSelections'],
+      filters: [
+        { name: '動画ファイル', extensions: SUPPORTED_EXTENSIONS.video },
+        { name: '画像ファイル', extensions: SUPPORTED_EXTENSIONS.image },
+        { name: 'すべてのファイル', extensions: ['*'] }
+      ],
+      title: 'メディアファイルを選択'
+    });
+    
+    return { 
+      filePaths: result.canceled ? [] : result.filePaths, 
+      isDirectory: false 
+    };
+  }
+
+  /**
    * デスクトップのパスを取得
    * @returns {string} デスクトップのパス
    */
